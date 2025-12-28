@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "network-automation"
+version = "0.1.0"
+description = "Network automation library for multi-vendor devices with Nautobot integration"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Pawel Bien" }
+]
+
+dependencies = [
+    "netmiko>=4.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+    "pytest-cov>=5.0",
+]
+
+[tool.setuptools]
+packages = ["network_automation"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "network_automation/tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = [
+    "network_automation",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
