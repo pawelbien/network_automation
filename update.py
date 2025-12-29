@@ -26,7 +26,7 @@ def main():
         "log_file": "upgrade.log",
     }
 
-    client = get_client("mikrotik", **params)
+    client = get_client("mikrotik_routeros", **params)
     client.upgrade()
 
 

@@ -5,8 +5,8 @@ Mikrotik firmware upgrade helpers.
 import re
 import time
 
-from network_automation.vendors.mikrotik.info import get_info
-from network_automation.vendors.mikrotik.info import (
+from network_automation.platforms.mikrotik_routeros.info import get_info
+from network_automation.platforms.mikrotik_routeros.info import (
     get_info,
     normalize_version,
     is_newer_version,

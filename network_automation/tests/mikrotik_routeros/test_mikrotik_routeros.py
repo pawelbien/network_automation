@@ -1,18 +1,18 @@
 import pytest
 from unittest.mock import MagicMock
-from network_automation.vendors.mikrotik.client import Mikrotik
-from network_automation.vendors.mikrotik.info import (
+from network_automation.platforms.mikrotik_routeros.client import MikrotikRouterOS
+from network_automation.platforms.mikrotik_routeros.info import (
     normalize_version,
     is_newer_version,
 )
-from network_automation.vendors.mikrotik.upgrade import download_firmware
+from network_automation.platforms.mikrotik_routeros.upgrade import download_firmware
 
 
 # ---------- Fixtures ----------
 
 @pytest.fixture
 def updater():
-    return Mikrotik(
+    return MikrotikRouterOS(
         host="1.1.1.1",
         username="admin",
         key_file="key",
@@ -153,7 +153,7 @@ def test_download_firmware_too_small(updater, fake_conn):
 # ---------- upgrade workflow ----------
 
 def test_upgrade_skipped_if_not_newer(mocker, updater, fake_conn):
-    mocker.patch("network_automation.vendors.mikrotik.client.ConnectHandler", return_value=fake_conn)
+    mocker.patch("network_automation.platforms.mikrotik_routeros.client.ConnectHandler", return_value=fake_conn)
 
     fake_conn.send_command.return_value = """
         version: 7.14
@@ -167,7 +167,7 @@ def test_upgrade_skipped_if_not_newer(mocker, updater, fake_conn):
 
 def test_upgrade_success(mocker, updater, fake_conn):
     mocker.patch(
-        "network_automation.vendors.mikrotik.client.ConnectHandler",
+        "network_automation.platforms.mikrotik_routeros.client.ConnectHandler",
         return_value=fake_conn
     )
 
@@ -186,7 +186,7 @@ def test_upgrade_success(mocker, updater, fake_conn):
 
     mocker.patch.object(updater, "wait_for_reconnect", return_value=fake_conn)
     mock_download = mocker.patch(
-        "network_automation.vendors.mikrotik.upgrade.download_firmware"
+        "network_automation.platforms.mikrotik_routeros.upgrade.download_firmware"
     )
     mocker.patch.object(updater, "reboot")
 
@@ -197,7 +197,7 @@ def test_upgrade_success(mocker, updater, fake_conn):
 
 
 def test_upgrade_version_mismatch(mocker, updater, fake_conn):
-    mocker.patch("network_automation.vendors.mikrotik.client.ConnectHandler", return_value=fake_conn)
+    mocker.patch("network_automation.platforms.mikrotik_routeros.client.ConnectHandler", return_value=fake_conn)
 
     fake_conn.send_command.side_effect = [
         """
@@ -211,7 +211,7 @@ def test_upgrade_version_mismatch(mocker, updater, fake_conn):
     ]
 
     mocker.patch.object(updater, "wait_for_reconnect", return_value=fake_conn)
-    mocker.patch("network_automation.vendors.mikrotik.upgrade.download_firmware")
+    mocker.patch("network_automation.platforms.mikrotik_routeros.upgrade.download_firmware")
     mocker.patch.object(updater, "reboot")
 
     with pytest.raises(RuntimeError):

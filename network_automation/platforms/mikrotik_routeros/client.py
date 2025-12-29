@@ -1,12 +1,12 @@
 import time
 import logging
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
-from network_automation.vendors.mikrotik.info import get_info
-from network_automation.vendors.mikrotik.backup import run_backup
-from network_automation.vendors.mikrotik.upgrade import upgrade as upgrade_helper
+from network_automation.platforms.mikrotik_routeros.info import get_info
+from network_automation.platforms.mikrotik_routeros.backup import run_backup
+from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
 
 
-class Mikrotik:
+class MikrotikRouterOS:
 
     def __init__(
         self,
@@ -17,7 +17,7 @@ class Mikrotik:
         firmware_version,
         repo_url="https://download.mikrotik.com/routeros",
         port=22,
-        log_file="mikrotik_update.log",
+        log_file="mikrotik_ros_update.log",
         connect_retries=2,
         connect_delay=2,        
         reconnect_timeout=180,
@@ -62,7 +62,7 @@ class Mikrotik:
 
     def setup_logging(self, log_file, level=logging.INFO):
         """Setup console and file logging without duplicating handlers."""
-        self.logger = logging.getLogger(f"MikroTikUpdater-{self.host}")
+        self.logger = logging.getLogger(f"MikroTikROSUpdater-{self.host}")
         self.logger.setLevel(level)
 
         # Prevent duplicate handlers if called multiple times
