@@ -18,6 +18,7 @@ def main():
         raise RuntimeError("Environment variable PASSPHRASE is not set.")
 
     params = {
+        "device_type": "mikrotik_routeros",
         "host":     "10.0.0.100",
         "username": "testuser",
         "key_file": "~/.ssh/id_rsa_test",
@@ -26,7 +27,7 @@ def main():
         "log_file": "upgrade.log",
     }
 
-    client = get_client("mikrotik_routeros", **params)
+    client = get_client(**params)
     client.upgrade()
 
 
