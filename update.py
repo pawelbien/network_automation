@@ -23,6 +23,7 @@ def main():
         "username": "testuser",
         "key_file": "~/.ssh/id_rsa_test",
         "passphrase": passphrase,
+        "use_keys": True,
         "firmware_version": firmware_version,
         "log_file": "upgrade.log",
     }

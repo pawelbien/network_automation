@@ -11,10 +11,12 @@ class MikrotikRouterOS:
     def __init__(
         self,
         host,
-        username,
-        key_file,
-        passphrase,
         firmware_version,
+        username,
+        password: str | None = None,
+        key_file: str | None = None,
+        passphrase: str | None = None,
+        use_keys: bool = False,
         repo_url="https://download.mikrotik.com/routeros",
         port=22,
         log_file="mikrotik_ros_update.log",
@@ -29,16 +31,19 @@ class MikrotikRouterOS:
             "device_type": "mikrotik_routeros",
             "host": host,
             "username": username,
-            "use_keys": True,
+            "password": password,
             "key_file": key_file,
             "passphrase": passphrase,
+            "use_keys": use_keys,
             "port": port,
         }
 
         self.host = host
         self.username = username
+        self.password = password
         self.key_file = key_file
         self.passphrase = passphrase
+        self.use_keys = use_keys
         self.version = firmware_version
         self.repo_url = repo_url.rstrip("/")
         # Connection retry config
