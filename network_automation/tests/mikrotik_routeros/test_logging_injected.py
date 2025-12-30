@@ -1,3 +1,5 @@
+# network_automation/tests/mikrotik_routeros/test_logging_injected.py
+
 from network_automation.factory import get_client
 
 class FakeJobLogger:

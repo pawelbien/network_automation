@@ -1,8 +1,10 @@
-import re
+# network_automation/platforms/mikrotik_routeros/info.py
 
 """
 Mikrotik device information helpers.
 """
+
+import re
 
 def get_info(client):
     """Read system architecture and version."""

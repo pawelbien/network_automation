@@ -1,3 +1,5 @@
+# network_automation/platforms/mikrotik_routeros/upgrade.py
+
 """
 Mikrotik firmware upgrade helpers.
 """
