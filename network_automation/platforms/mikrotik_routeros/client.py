@@ -1,3 +1,5 @@
+# network_automation/platforms/mikrotik_routeros/client.py
+
 import time
 import logging
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
@@ -19,11 +21,13 @@ class MikrotikRouterOS:
         use_keys: bool = False,
         repo_url="https://download.mikrotik.com/routeros",
         port=22,
-        log_file="mikrotik_ros_update.log",
         connect_retries=2,
         connect_delay=2,        
         reconnect_timeout=180,
-        reconnect_delay=10
+        reconnect_delay=10,
+        log_file=None,   # deprecated, kept for backward compatibility
+        *,
+        logger=None,
 
     ):
 
@@ -59,37 +63,11 @@ class MikrotikRouterOS:
         self.arch = None
         self.current_version = None
         self.firmware_file = None
-        self.setup_logging(log_file)
 
-    # -------------------------------------------------------
-    # Logging
-    # -------------------------------------------------------
+        # Use injected logger if provided (e.g. Nautobot Job),
+        # fallback to standard Python logger for CLI/tests
+        self.logger = logger or logging.getLogger(__name__)
 
-    def setup_logging(self, log_file, level=logging.INFO):
-        """Setup console and file logging without duplicating handlers."""
-        self.logger = logging.getLogger(f"MikroTikROSUpdater-{self.host}")
-        self.logger.setLevel(level)
-
-        # Prevent duplicate handlers if called multiple times
-        if self.logger.handlers:
-            return
-
-        fmt = logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s",
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-        # Console handler
-        ch = logging.StreamHandler()
-        ch.setLevel(level)
-        ch.setFormatter(fmt)
-        self.logger.addHandler(ch)
-
-        # File handler
-        fh = logging.FileHandler(log_file)
-        fh.setLevel(level)
-        fh.setFormatter(fmt)
-        self.logger.addHandler(fh)
 
     # -------------------------------------------------------
     # Connection handling
@@ -215,7 +193,8 @@ class MikrotikRouterOS:
 
                 if "version" in out.lower():
                     self.logger.info("Device fully online (SSH + CLI ready).")
-                    return conn   # ← NIE zamykamy!
+                    self.conn = conn
+                    return conn
 
             except Exception:
                 pass

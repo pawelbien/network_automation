@@ -1,8 +1,14 @@
 import os
 import sys
+import logging
 from network_automation.factory import get_client
 
 def main():
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
 
     # --- required argument: version ---
     if len(sys.argv) != 2:
@@ -30,7 +36,6 @@ def main():
 
     client = get_client(**params)
     client.upgrade()
-
 
 if __name__ == "__main__":
     main()

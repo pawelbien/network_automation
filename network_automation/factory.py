@@ -8,8 +8,10 @@ _CLIENT_REGISTRY = {
     # "juniper_junos": JuniperJunos,
 }
 
-
 def get_client(**params):
+    # Extract out-of-band parameters (not related to platform/client API)
+    logger = params.pop("logger", None)
+
     try:
         device_type = params.pop("device_type")
     except KeyError:
@@ -20,4 +22,7 @@ def get_client(**params):
     except KeyError:
         raise ValueError(f"Unsupported device_type: {device_type}")
 
-    return client_cls(**params)
+    return client_cls(
+        logger=logger,
+        **params,
+    )
