@@ -31,7 +31,6 @@ def main():
         "passphrase": passphrase,
         "use_keys": True,
         "firmware_version": firmware_version,
-        "log_file": "upgrade.log",
     }
 
     client = get_client(**params)
