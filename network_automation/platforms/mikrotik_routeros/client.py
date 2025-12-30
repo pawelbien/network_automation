@@ -1,14 +1,18 @@
 # network_automation/platforms/mikrotik_routeros/client.py
 
 import time
-import logging
-from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
+from netmiko import ConnectHandler
+from network_automation.base_client import BaseClient
+from network_automation.context import ExecutionContext
 from network_automation.platforms.mikrotik_routeros.info import get_info
 from network_automation.platforms.mikrotik_routeros.backup import run_backup
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
 
 
-class MikrotikRouterOS:
+class MikrotikRouterOS(BaseClient):
+    """
+    Platform client for MikroTik RouterOS devices.
+    """
 
     def __init__(
         self,
@@ -22,15 +26,28 @@ class MikrotikRouterOS:
         repo_url="https://download.mikrotik.com/routeros",
         port=22,
         connect_retries=2,
-        connect_delay=2,        
+        connect_delay=2,
         reconnect_timeout=180,
         reconnect_delay=10,
-        log_file=None,   # deprecated, kept for backward compatibility
+        log_file=None,  # deprecated, kept for backward compatibility
         *,
-        logger=None,
-
+        context: ExecutionContext | None = None,
     ):
+        # Initialize shared BaseClient state (context, logger, retry config)
+        super().__init__(
+            context=context,
+            connect_retries=connect_retries,
+            connect_delay=connect_delay,
+        )
 
+        # Legacy parameter kept for backward compatibility
+        if log_file:
+            self.logger.debug(
+                "Parameter 'log_file' is deprecated and ignored. "
+                "Logging must be configured by the caller."
+            )
+
+        # Netmiko connection parameters (platform-specific)
         self.device = {
             "device_type": "mikrotik_routeros",
             "host": host,
@@ -42,87 +59,27 @@ class MikrotikRouterOS:
             "port": port,
         }
 
+        # Device and workflow metadata
         self.host = host
         self.username = username
-        self.password = password
-        self.key_file = key_file
-        self.passphrase = passphrase
-        self.use_keys = use_keys
         self.version = firmware_version
         self.repo_url = repo_url.rstrip("/")
-        # Connection retry config
-        self.connect_retries = connect_retries
-        self.connect_delay = connect_delay
-        # Reconnect after reboot config
+
+        # Reconnect-after-reboot configuration
         self.reconnect_timeout = reconnect_timeout
         self.reconnect_delay = reconnect_delay
 
-
-
-        self.conn = None
+        # Runtime state
         self.arch = None
         self.current_version = None
         self.firmware_file = None
 
-        # Use injected logger if provided (e.g. Nautobot Job),
-        # fallback to standard Python logger for CLI/tests
-        self.logger = logger or logging.getLogger(__name__)
-
-
     # -------------------------------------------------------
-    # Connection handling
-    # -------------------------------------------------------
-
-    def connect(self):
-        """Attempt SSH connection with retry logic."""
-        attempt = 1
-
-        while attempt <= self.connect_retries:
-            self.logger.info(
-                f"Connecting to {self.host} (attempt {attempt}/{self.connect_retries})..."
-            )
-
-            try:
-                self.conn = ConnectHandler(**self.device)
-                self.logger.info("Connected successfully.")
-                return
-            except NetmikoTimeoutException:
-                self.logger.warning(
-                    f"Connection timeout to {self.host}. Device may be offline."
-                )
-            except NetmikoAuthenticationException:
-                self.logger.error(
-                    f"Authentication failed for {self.host}. Check SSH key/passphrase."
-                )
-                raise
-            except Exception as e:
-                self.logger.error(f"Unexpected connection error: {e}")
-
-            if attempt < self.connect_retries:
-                self.logger.info(f"Retrying in {self.connect_delay} seconds...")
-                time.sleep(self.connect_delay)
-
-            attempt += 1
-
-        raise NetmikoTimeoutException(
-            f"Unable to connect to {self.host} after {self.connect_retries} attempts."
-        )
-
-    def disconnect(self):
-        """Close SSH connection."""
-        if self.conn:
-            try:
-                self.conn.disconnect()
-            except:
-                pass
-            self.conn = None
-
-    # -------------------------------------------------------
-    # System info parsing
+    # System info
     # -------------------------------------------------------
 
     def get_info(self):
-        """Read architecture and version using helper."""
+        """Read device architecture and RouterOS version."""
         arch, version = get_info(self)
         self.arch = arch
         self.current_version = version
@@ -135,37 +92,36 @@ class MikrotikRouterOS:
     # -------------------------------------------------------
 
     def backup(self, name):
-        """Run backup using helper."""
+        """Run configuration backup."""
         return run_backup(self, name)
-
 
     # -------------------------------------------------------
     # Reboot & reconnect
     # -------------------------------------------------------
 
     def reboot(self):
-        """Stable reboot for RouterOS 7.x (no hanging)."""
+        """Perform a stable reboot for RouterOS 7.x."""
         self.logger.info("Rebooting device...")
 
         out = self.conn.send_command_timing("/system reboot")
 
-        # Your environment: always "Reboot, yes? [y/N]:"
         if "[y/n" in out.lower():
             self.conn.send_command_timing("y")
         else:
-            # Sometimes Netmiko captures only partial buffer, so check again
             time.sleep(0.3)
             out2 = self.conn.send_command_timing("")
             if "[y/n" in out2.lower():
                 self.conn.send_command_timing("y")
             else:
-                self.logger.warning("Reboot prompt not detected — sending 'y' anyway.")
+                self.logger.warning(
+                    "Reboot prompt not detected — sending 'y' anyway."
+                )
                 self.conn.send_command_timing("y")
 
-        # Router closes SSH immediately afterward — that's expected.
+        # SSH connection is closed immediately after reboot
         try:
             self.conn.disconnect()
-        except:
+        except Exception:
             pass
 
         self.conn = None
@@ -186,24 +142,28 @@ class MikrotikRouterOS:
             try:
                 conn = ConnectHandler(**self.device)
 
-                # Give RouterOS a moment to finish CLI init
+                # Give RouterOS a moment to finish CLI initialization
                 time.sleep(1.0)
 
-                out = conn.send_command("/system resource print", delay_factor=2)
+                out = conn.send_command(
+                    "/system resource print",
+                    delay_factor=2,
+                )
 
                 if "version" in out.lower():
-                    self.logger.info("Device fully online (SSH + CLI ready).")
+                    self.logger.info(
+                        "Device fully online (SSH + CLI ready)."
+                    )
                     self.conn = conn
                     return conn
 
             except Exception:
                 pass
 
-            # Not ready yet → close and retry
             if conn:
                 try:
                     conn.disconnect()
-                except:
+                except Exception:
                     pass
 
             time.sleep(self.reconnect_delay)
@@ -213,9 +173,11 @@ class MikrotikRouterOS:
     # -------------------------------------------------------
 
     def check_version(self):
-        """Re-use get_info() logic to obtain version after reboot."""
+        """Check RouterOS version after reboot."""
         self.get_info()
-        self.logger.info(f"Version after reboot: {self.current_version}")
+        self.logger.info(
+            f"Version after reboot: {self.current_version}"
+        )
         return self.current_version
 
     # -------------------------------------------------------
@@ -223,6 +185,5 @@ class MikrotikRouterOS:
     # -------------------------------------------------------
 
     def upgrade(self):
-        """Run firmware upgrade using helper."""
+        """Run firmware upgrade workflow."""
         return upgrade_helper(self)
-

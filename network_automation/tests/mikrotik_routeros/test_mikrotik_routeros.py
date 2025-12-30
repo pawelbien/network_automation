@@ -155,7 +155,7 @@ def test_download_firmware_too_small(updater, fake_conn):
 # ---------- upgrade workflow ----------
 
 def test_upgrade_skipped_if_not_newer(mocker, updater, fake_conn):
-    mocker.patch("network_automation.platforms.mikrotik_routeros.client.ConnectHandler", return_value=fake_conn)
+    mocker.patch("network_automation.base_client.ConnectHandler", return_value=fake_conn)
 
     fake_conn.send_command.return_value = """
         version: 7.14
@@ -169,7 +169,7 @@ def test_upgrade_skipped_if_not_newer(mocker, updater, fake_conn):
 
 def test_upgrade_success(mocker, updater, fake_conn):
     mocker.patch(
-        "network_automation.platforms.mikrotik_routeros.client.ConnectHandler",
+        "network_automation.base_client.ConnectHandler",
         return_value=fake_conn
     )
 
@@ -199,7 +199,7 @@ def test_upgrade_success(mocker, updater, fake_conn):
 
 
 def test_upgrade_version_mismatch(mocker, updater, fake_conn):
-    mocker.patch("network_automation.platforms.mikrotik_routeros.client.ConnectHandler", return_value=fake_conn)
+    mocker.patch("network_automation.base_client.ConnectHandler", return_value=fake_conn)
 
     fake_conn.send_command.side_effect = [
         """
