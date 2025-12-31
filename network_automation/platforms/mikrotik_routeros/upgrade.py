@@ -7,6 +7,7 @@ Mikrotik firmware upgrade helpers.
 import re
 import time
 
+from network_automation.results import OperationResult
 from network_automation.platforms.mikrotik_routeros.info import get_info
 from network_automation.platforms.mikrotik_routeros.info import (
     get_info,
@@ -86,8 +87,18 @@ def download_firmware(client):
     client.logger.info(f"Firmware '{filename}' size OK: {size}MiB")
 
 
-def upgrade(client):
+def upgrade(client, *, return_result: bool = False):
     """Run full firmware upgrade workflow."""
+
+    result = OperationResult(
+        success=True,
+        operation="upgrade",
+        metadata={
+            "target_version": client.version,
+        },
+    )
+
+    result.mark_started()
 
     client.connect()
     try:
@@ -95,12 +106,20 @@ def upgrade(client):
         client.arch = arch
         client.current_version = current_version
 
+        result.metadata["current_version"] = current_version
+        result.metadata["arch"] = arch
+
         if not is_newer_version(client.current_version, client.version):
-            client.logger.info(
+            msg = (
                 f"Skipping upgrade: current version {client.current_version} "
                 f"is >= target {client.version}"
             )
-            return
+            client.logger.info(msg)
+
+            result.message = msg
+            result.metadata["skipped"] = True
+
+            return result if return_result else None
 
         download_firmware(client)
 
@@ -110,14 +129,25 @@ def upgrade(client):
         arch, final_version = get_info(client)
         client.current_version = final_version
 
+        result.metadata["final_version"] = final_version
+
         if normalize_version(final_version) != normalize_version(client.version):
             raise RuntimeError(
                 f"Upgrade version mismatch: expected {client.version}, got {final_version}"
             )
 
-        client.logger.info(
-            f"Upgrade completed successfully: {final_version}"
-        )
+        msg = f"Upgrade completed successfully: {final_version}"
+        client.logger.info(msg)
+        result.message = msg
+
+        return result if return_result else None
+
+    except Exception as exc:
+        result.success = False
+        result.errors.append(str(exc))
+        raise
 
     finally:
+        result.mark_finished()
         client.disconnect()
+

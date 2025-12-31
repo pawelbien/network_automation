@@ -184,6 +184,5 @@ class MikrotikRouterOS(BaseClient):
     # Main upgrade workflow
     # -------------------------------------------------------
 
-    def upgrade(self):
-        """Run firmware upgrade workflow."""
-        return upgrade_helper(self)
+    def upgrade(self, *, return_result: bool = False):
+        return upgrade_helper(self, return_result=return_result)
