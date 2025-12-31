@@ -1,4 +1,4 @@
-# network_automation/tests/mikrotik_routeros/test_results.py
+# network_automation/tests/test_results.py
 
 from network_automation.results import OperationResult
 

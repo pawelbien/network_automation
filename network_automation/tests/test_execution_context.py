@@ -1,4 +1,4 @@
-#network_automation/tests/mikrotik_routeros/test_execution_context.py
+#network_automation/tests/test_execution_context.py
 
 from network_automation.context import ExecutionContext
 from network_automation.factory import get_client
