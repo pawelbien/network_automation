@@ -43,3 +43,43 @@ def normalize_version(v):
 def is_newer_version(current_version, new_version):
     """Return True if new_version > current_version."""
     return normalize_version(new_version) > normalize_version(current_version)
+
+from network_automation.results import OperationResult
+
+
+def read_info(client, *, return_result: bool = False):
+    """
+    Read device architecture and version as a workflow operation.
+
+    Raises exceptions on failure.
+    """
+
+    result = OperationResult(
+        success=True,
+        operation="info",
+    )
+
+    result.mark_started()
+
+    client.connect()
+    try:
+        arch, version = get_info(client)
+
+        # Persist on client (existing behavior pattern)
+        client.arch = arch
+        client.current_version = version
+
+        result.metadata["architecture"] = arch
+        result.metadata["version"] = version
+        result.message = "System information read successfully"
+
+        return result if return_result else (arch, version)
+
+    except Exception as exc:
+        result.success = False
+        result.errors.append(str(exc))
+        raise
+
+    finally:
+        result.mark_finished()
+        client.disconnect()
