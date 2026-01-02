@@ -50,8 +50,8 @@ from network_automation.results import OperationResult
 def read_info(client, *, return_result: bool = False):
     """
     Read device architecture and version as a workflow operation.
-
     Raises exceptions on failure.
+    For external call.
     """
 
     result = OperationResult(
