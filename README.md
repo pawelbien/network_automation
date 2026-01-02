@@ -1,33 +1,72 @@
-# Network Automation
+# network_automation
 
-Multi-vendor network automation library in Python, designed for
-integration with Nautobot Jobs. Currently supports Mikrotik
-RouterOS.
+`network_automation` is a platform-centric Python library for automating
+network device operations such as **info**, **backup**, and **upgrade**.
 
-## Features
+The library is designed to work:
+- with Nautobot Jobs,
+- from CLI tools,
+- in pytest-based test suites.
 
--   Thin device clients per vendor
--   Action-based helpers: info, backup, upgrade
--   Factory for vendor selection
--   Pytest test suite with coverage
--   Ready for Nautobot Jobs integration
+Currently supported platform:
+- Mikrotik RouterOS
 
-## Installation
+---
 
-``` bash
-pip install -e ".[dev]"
+## Key Concepts
+
+- **Platform-centric** design (not vendor-centric)
+- **Single factory** for client creation
+- **Thin clients**, rich helpers
+- **Explicit connection lifecycle**
+- **Optional structured results**
+
+---
+
+## Basic Usage
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="mikrotik_routeros",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+client.info()
+client.backup("daily")
+client.upgrade()
 ```
 
-## Usage
+To obtain structured results:
 
-See update.py
+```python
+result = client.upgrade(return_result=True)
+```
+
+---
+
+## Logging
+
+The library does not configure logging.
+
+- In Nautobot Jobs, pass `self.logger`
+- In CLI tools, configure logging via `logging.basicConfig`
+
+---
 
 ## Tests
 
-``` bash
-python -m pytest --cov=network_automation --cov-report=term-missing
+Run tests with:
+
+```bash
+python -m pytest
 ```
+
+---
 
 ## License
 
-MIT License.
+MIT License
