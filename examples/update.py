@@ -1,5 +1,10 @@
 # network_automation/update.py
 
+"""
+Example Mikrotik update
+"""
+
+
 import os
 import sys
 import logging
