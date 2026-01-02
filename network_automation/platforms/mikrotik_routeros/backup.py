@@ -1,6 +1,9 @@
 # network_automation/platforms/mikrotik_routeros/backup.py
 
-import os
+"""
+Mikrotik RouterOS backup helpers.
+"""
+
 from network_automation.results import OperationResult
 
 
@@ -14,7 +17,11 @@ def run_backup(
     """
     Run backup on RouterOS and optionally download the backup file.
 
-    Raises exceptions on failure.
+    Behavior:
+    - Creates a .backup file on the device
+    - Downloads it locally via Paramiko SFTP
+    - Raises exceptions on failure
+    - Optionally returns OperationResult
     """
 
     result = OperationResult(
@@ -33,6 +40,7 @@ def run_backup(
         backup_file = f"{name}.backup"
         client.logger.info(f"Creating backup '{backup_file}'")
 
+        # Create backup on RouterOS
         client.conn.send_command(
             f"/system backup save name={name}",
             expect_string=r"\[.*\]",
@@ -40,17 +48,15 @@ def run_backup(
 
         result.metadata["remote_file"] = backup_file
 
-        # ---- download backup file ----
-
-        local_path = os.path.join(download_dir, backup_file)
+        # ---- download backup file via Paramiko SFTP ----
+        local_path = f"{download_dir.rstrip('/')}/{backup_file}"
         client.logger.info(f"Downloading backup to {local_path}")
 
-        client.conn.file_transfer(
-            source_file=backup_file,
-            dest_file=local_path,
-            direction="get",
-            overwrite_file=True,
-        )
+        sftp = client.conn.remote_conn_pre.open_sftp()
+        try:
+            sftp.get(backup_file, local_path)
+        finally:
+            sftp.close()
 
         result.metadata["local_path"] = local_path
         result.message = f"Backup '{backup_file}' created and downloaded"
