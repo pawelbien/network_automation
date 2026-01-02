@@ -138,6 +138,23 @@ Results describe outcomes.
 
 ---
 
+## Nautobot Integration Pattern
+
+When used from Nautobot Jobs:
+
+- the Job provides the logger,
+- device platform is mapped directly to `device_type`,
+- Jobs remain thin and declarative,
+- results are consumed, not interpreted.
+
+Typical flow:
+1. Job collects parameters
+2. Job creates client via factory
+3. Job executes operation
+4. Job logs based on `OperationResult`
+
+---
+
 ## Testing Strategy
 
 - no real network connections
