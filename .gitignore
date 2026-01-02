@@ -33,6 +33,7 @@ dist/
 *.swp
 *.tar
 *.tar.gz
+*.backup
 
 # Other
 priv.py
