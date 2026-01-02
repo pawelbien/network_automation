@@ -91,9 +91,19 @@ class MikrotikRouterOS(BaseClient):
     # Backup
     # -------------------------------------------------------
 
-    def backup(self, name):
-        """Run configuration backup."""
-        return run_backup(self, name)
+    def backup(
+        self,
+        name: str,
+        *,
+        return_result: bool = False,
+        download_dir: str = ".",
+    ):
+        return run_backup(
+            self,
+            name,
+            return_result=return_result,
+            download_dir=download_dir,
+        )
 
     # -------------------------------------------------------
     # Reboot & reconnect
