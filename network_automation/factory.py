@@ -10,13 +10,24 @@ _PLATFORM_REGISTRY = {
 }
 
 def get_client(**params):
-    # Execution context (preferred)
+    # -------------------------------------------------
+    # ExecutionContext handling
+    # -------------------------------------------------
+
     context = params.pop("context", None)
 
-    # Backward compatibility: logger without context
     if context is None:
-        logger = params.pop("logger", None)
-        context = ExecutionContext(logger=logger)
+        context = ExecutionContext(
+            logger=params.pop("logger", None),
+            device_name=params.pop("device_name", None),
+            job_id=params.pop("job_id", None),
+            metadata=params.pop("metadata", None),
+            dry_run=params.pop("dry_run", False),
+        )
+
+    # -------------------------------------------------
+    # Platform selection
+    # -------------------------------------------------
 
     try:
         device_type = params.pop("device_type")
@@ -28,7 +39,11 @@ def get_client(**params):
     except KeyError:
         raise ValueError(f"Unsupported device_type: {device_type}")
 
+    # -------------------------------------------------
+    # Client creation
+    # -------------------------------------------------
+
     return client_cls(
         context=context,
-        **params,
+        **params,   # ← ONLY platform-specific params remain
     )
