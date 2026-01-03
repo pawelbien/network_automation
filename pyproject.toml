@@ -7,7 +7,7 @@ name = "network-automation"
 version = "0.1.0"
 description = "Network automation library for multi-vendor devices with Nautobot integration"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
     { name = "Pawel Bien" }
