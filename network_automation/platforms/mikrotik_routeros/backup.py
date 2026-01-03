@@ -6,6 +6,39 @@ Mikrotik RouterOS backup helpers.
 
 from network_automation.results import OperationResult
 
+def cleanup_old_backups(client):
+    """
+    Remove old RouterOS backup files created by network_automation.
+
+    Only files with prefix 'nauto_' are removed.
+    """
+    client.logger.info("Cleaning up old network_automation backups on device")
+
+    output = client.conn.send_command(
+        '/file print detail where name~"nauto_.*.backup"'
+    )
+
+    for line in output.splitlines():
+        if "name=" not in line:
+            continue
+
+        # RouterOS format: name=nauto_xxx.backup
+        parts = line.split()
+        name_part = next(
+            (p for p in parts if p.startswith("name=")),
+            None,
+        )
+
+        if not name_part:
+            continue
+
+        filename = name_part.split("=", 1)[1]
+
+        client.logger.info("Removing old backup file: %s", filename)
+        client.conn.send_command(
+            f'/file remove "{filename}"'
+        )
+
 
 def run_backup(
     client,
@@ -37,12 +70,15 @@ def run_backup(
     try:
         client.connect()
 
-        backup_file = f"{name}.backup"
+        cleanup_old_backups(client)
+
+        backup_name = f"nauto_{name}"
+        backup_file = f"{backup_name}.backup"
+
         client.logger.info(f"Creating backup '{backup_file}'")
 
-        # Create backup on RouterOS
         client.conn.send_command(
-            f"/system backup save name={name}",
+            f"/system backup save name={backup_name}",
             expect_string=r"\[.*\]",
         )
 
@@ -71,3 +107,5 @@ def run_backup(
     finally:
         result.mark_finished()
         client.disconnect()
+
+
