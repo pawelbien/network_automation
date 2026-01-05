@@ -1,4 +1,4 @@
-# network_automation/tests/conftest.py
+# network_automation/tests/mikrotik_routeros/conftest.py
 
 import pytest
 from network_automation.platforms.mikrotik_routeros.client import MikrotikRouterOS

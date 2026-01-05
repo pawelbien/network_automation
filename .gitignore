@@ -36,4 +36,4 @@ dist/
 *.backup
 
 # Other
-priv.py
+priv*
