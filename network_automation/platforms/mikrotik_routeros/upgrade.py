@@ -90,6 +90,11 @@ def download_firmware(client):
 def upgrade(client, *, return_result: bool = False):
     """Run full firmware upgrade workflow."""
 
+    if not client.version:
+        raise ValueError(
+            "firmware_version is required for upgrade operation"
+        )
+
     result = OperationResult(
         success=True,
         operation="upgrade",

@@ -17,8 +17,8 @@ class MikrotikRouterOS(BaseClient):
     def __init__(
         self,
         host,
-        firmware_version,
         username,
+        firmware_version: str | None = None,
         password: str | None = None,
         key_file: str | None = None,
         passphrase: str | None = None,
