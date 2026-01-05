@@ -28,7 +28,7 @@ class MikrotikRouterOS(BaseClient):
         port=22,
         connect_retries=2,
         connect_delay=2,
-        reconnect_timeout=180,
+        reconnect_timeout=300,
         reconnect_delay=10,
         log_file=None,  # deprecated, kept for backward compatibility
         *,
