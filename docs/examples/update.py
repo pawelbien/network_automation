@@ -1,4 +1,4 @@
-# network_automation/update.py
+# network_automation/examples/update.py
 
 """
 Example Mikrotik update
