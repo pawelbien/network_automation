@@ -4,8 +4,9 @@ import time
 from netmiko import ConnectHandler
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
-from network_automation.platforms.mikrotik_routeros.info import get_info
 from network_automation.platforms.mikrotik_routeros.backup import run_backup
+from network_automation.platforms.mikrotik_routeros.info import get_info
+from network_automation.platforms.mikrotik_routeros.run import run as run_helper
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
 
 
@@ -196,3 +197,15 @@ class MikrotikRouterOS(BaseClient):
 
     def upgrade(self, *, return_result: bool = False):
         return upgrade_helper(self, return_result=return_result)
+
+    # -------------------------------------------------------
+    # Run arbitrary commands
+    # -------------------------------------------------------
+
+    def run(self, commands, *, return_result: bool = False):
+        return run_helper(
+            self,
+            commands,
+            return_result=return_result,
+        )
+

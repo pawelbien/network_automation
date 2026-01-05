@@ -2,15 +2,15 @@
 
 from network_automation.results import OperationResult
 
-def test_upgrade_returns_result(monkeypatch, updater):
+def test_upgrade_returns_result(monkeypatch, mikrotik_client):
     monkeypatch.setattr(
-        updater,
+        mikrotik_client,
         "connect",
         lambda: None,
     )
 
     monkeypatch.setattr(
-        updater,
+        mikrotik_client,
         "disconnect",
         lambda: None,
     )
@@ -26,18 +26,18 @@ def test_upgrade_returns_result(monkeypatch, updater):
     )
 
     monkeypatch.setattr(
-        updater,
+        mikrotik_client,
         "reboot",
         lambda: None,
     )
 
     monkeypatch.setattr(
-        updater,
+        mikrotik_client,
         "wait_for_reconnect",
-        lambda: updater.conn,
+        lambda: mikrotik_client.conn,
     )
 
-    result = updater.upgrade(return_result=True)
+    result = mikrotik_client.upgrade(return_result=True)
 
     assert isinstance(result, OperationResult)
     assert result.success is True

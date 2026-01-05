@@ -5,7 +5,7 @@ from network_automation.platforms.mikrotik_routeros.client import MikrotikRouter
 
 
 @pytest.fixture
-def updater():
+def mikrotik_client():
     return MikrotikRouterOS(
         host="1.1.1.1",
         username="admin",

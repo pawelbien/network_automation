@@ -33,26 +33,26 @@ def test_is_newer_version():
 
 # ---------- get_info ----------
 
-def test_get_info_parsing(updater, fake_conn):
+def test_get_info_parsing(mikrotik_client, fake_conn):
     fake_conn.send_command.return_value = """
         uptime: 1d
         version: 7.13.5 (stable)
         architecture-name: arm64
     """
-    updater.conn = fake_conn
+    mikrotik_client.conn = fake_conn
 
-    updater.get_info()
+    mikrotik_client.get_info()
 
-    assert updater.arch == "arm64"
-    assert updater.current_version == "7.13.5 (stable)"
+    assert mikrotik_client.arch == "arm64"
+    assert mikrotik_client.current_version == "7.13.5 (stable)"
 
 
-def test_get_info_missing_arch(updater, fake_conn):
+def test_get_info_missing_arch(mikrotik_client, fake_conn):
     fake_conn.send_command.return_value = "version: 7.13.5"
-    updater.conn = fake_conn
+    mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError):
-        updater.get_info()
+        mikrotik_client.get_info()
 
 
 # ---------- download_firmware ----------
@@ -74,40 +74,40 @@ FILE_OUT_NOFLASH = (
 )
 
 
-def test_download_firmware_skips_if_exists_flash(updater, fake_conn):
-    updater.conn = fake_conn
-    updater.arch = "arm64"
-    updater.version = "7.14"
+def test_download_firmware_skips_if_exists_flash(mikrotik_client, fake_conn):
+    mikrotik_client.conn = fake_conn
+    mikrotik_client.arch = "arm64"
+    mikrotik_client.version = "7.14"
 
     fake_conn.send_command.side_effect = [
         FILE_OUT_FLASH,   # initial -> exists
         FILE_OUT_FLASH,   # refresh
     ]
 
-    download_firmware(updater)
+    download_firmware(mikrotik_client)
 
     fake_conn.send_command_timing.assert_not_called()
 
 
-def test_download_firmware_skips_if_exists_noflash(updater, fake_conn):
-    updater.conn = fake_conn
-    updater.arch = "arm64"
-    updater.version = "7.14"
+def test_download_firmware_skips_if_exists_noflash(mikrotik_client, fake_conn):
+    mikrotik_client.conn = fake_conn
+    mikrotik_client.arch = "arm64"
+    mikrotik_client.version = "7.14"
 
     fake_conn.send_command.side_effect = [
         FILE_OUT_NOFLASH,  # initial -> exists
         FILE_OUT_NOFLASH,  # refresh
     ]
 
-    download_firmware(updater)
+    download_firmware(mikrotik_client)
 
     fake_conn.send_command_timing.assert_not_called()
 
 
-def test_download_firmware_fetch_and_validate(updater, fake_conn):
-    updater.conn = fake_conn
-    updater.arch = "arm64"
-    updater.version = "7.14"
+def test_download_firmware_fetch_and_validate(mikrotik_client, fake_conn):
+    mikrotik_client.conn = fake_conn
+    mikrotik_client.arch = "arm64"
+    mikrotik_client.version = "7.14"
 
     fake_conn.send_command.side_effect = [
         "",               # not exists
@@ -115,16 +115,16 @@ def test_download_firmware_fetch_and_validate(updater, fake_conn):
     ]
     fake_conn.send_command_timing.return_value = "finished"
 
-    download_firmware(updater)
+    download_firmware(mikrotik_client)
 
 
     fake_conn.send_command_timing.assert_called_once()
 
 
-def test_download_firmware_too_small(updater, fake_conn):
-    updater.conn = fake_conn
-    updater.arch = "arm64"
-    updater.version = "7.14"
+def test_download_firmware_too_small(mikrotik_client, fake_conn):
+    mikrotik_client.conn = fake_conn
+    mikrotik_client.arch = "arm64"
+    mikrotik_client.version = "7.14"
 
     small_out = FILE_OUT_NOFLASH.replace("12.5MiB", "5.0MiB")
 
@@ -134,11 +134,11 @@ def test_download_firmware_too_small(updater, fake_conn):
     ]
 
     with pytest.raises(RuntimeError):
-        download_firmware(updater)
+        download_firmware(mikrotik_client)
 
 # ---------- upgrade workflow ----------
 
-def test_upgrade_skipped_if_not_newer(mocker, updater, fake_conn):
+def test_upgrade_skipped_if_not_newer(mocker, mikrotik_client, fake_conn):
     mocker.patch("network_automation.base_client.ConnectHandler", return_value=fake_conn)
 
     fake_conn.send_command.return_value = """
@@ -146,12 +146,12 @@ def test_upgrade_skipped_if_not_newer(mocker, updater, fake_conn):
         architecture-name: arm64
     """
 
-    updater.upgrade()
+    mikrotik_client.upgrade()
 
     fake_conn.send_command_timing.assert_not_called()
 
 
-def test_upgrade_success(mocker, updater, fake_conn):
+def test_upgrade_success(mocker, mikrotik_client, fake_conn):
     mocker.patch(
         "network_automation.base_client.ConnectHandler",
         return_value=fake_conn
@@ -170,19 +170,19 @@ def test_upgrade_success(mocker, updater, fake_conn):
 
     fake_conn.send_command_timing.return_value = "rebooting"
 
-    mocker.patch.object(updater, "wait_for_reconnect", return_value=fake_conn)
+    mocker.patch.object(mikrotik_client, "wait_for_reconnect", return_value=fake_conn)
     mock_download = mocker.patch(
         "network_automation.platforms.mikrotik_routeros.upgrade.download_firmware"
     )
-    mocker.patch.object(updater, "reboot")
+    mocker.patch.object(mikrotik_client, "reboot")
 
-    updater.upgrade()
+    mikrotik_client.upgrade()
 
-    mock_download.assert_called_once_with(updater)
-    updater.reboot.assert_called_once()
+    mock_download.assert_called_once_with(mikrotik_client)
+    mikrotik_client.reboot.assert_called_once()
 
 
-def test_upgrade_version_mismatch(mocker, updater, fake_conn):
+def test_upgrade_version_mismatch(mocker, mikrotik_client, fake_conn):
     mocker.patch("network_automation.base_client.ConnectHandler", return_value=fake_conn)
 
     fake_conn.send_command.side_effect = [
@@ -196,9 +196,9 @@ def test_upgrade_version_mismatch(mocker, updater, fake_conn):
         """,
     ]
 
-    mocker.patch.object(updater, "wait_for_reconnect", return_value=fake_conn)
+    mocker.patch.object(mikrotik_client, "wait_for_reconnect", return_value=fake_conn)
     mocker.patch("network_automation.platforms.mikrotik_routeros.upgrade.download_firmware")
-    mocker.patch.object(updater, "reboot")
+    mocker.patch.object(mikrotik_client, "reboot")
 
     with pytest.raises(RuntimeError):
-        updater.upgrade()
+        mikrotik_client.upgrade()

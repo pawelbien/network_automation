@@ -29,17 +29,17 @@ class FakeConn:
         return ""
 
 
-def test_backup_returns_result_and_downloads(monkeypatch, updater, tmp_path):
+def test_backup_returns_result_and_downloads(monkeypatch, mikrotik_client, tmp_path):
     # ---- lifecycle mocks ----
-    monkeypatch.setattr(updater, "connect", lambda: None)
-    monkeypatch.setattr(updater, "disconnect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
 
     # ---- fake SFTP stack ----
     fake_sftp = FakeSFTP()
-    updater.conn = FakeConn(fake_sftp)
+    mikrotik_client.conn = FakeConn(fake_sftp)
 
     # ---- run backup ----
-    result = updater.backup(
+    result = mikrotik_client.backup(
         "test-backup",
         return_result=True,
         download_dir=str(tmp_path),
