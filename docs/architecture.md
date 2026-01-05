@@ -1,14 +1,20 @@
 # Architecture Overview
 
 This document describes the internal architecture of the
-`network_automation` library.
+`network_automation` library and its intended usage patterns.
+
+The architecture is intentionally explicit and conservative.
+Hidden behavior is avoided in favor of predictable control flow,
+clear ownership boundaries, and testability.
 
 ---
 
 ## Core Design Goals
 
 - No hard dependency on Nautobot
+- Platform-centric, not vendor-agnostic by accident
 - Predictable and explicit behavior
+- Exceptions control flow, results describe outcomes
 - Easy testing without real devices
 - Long-term maintainability
 
@@ -19,13 +25,23 @@ This document describes the internal architecture of the
 The primary abstraction is **platform**, identified by `device_type`.
 
 The value of `device_type` must match:
+
 - Nautobot: `device.platform.network_driver`
 - Netmiko: `device_type`
 
 Example:
+
 ```
 mikrotik_routeros
 ```
+
+There is a **1:1 mapping** between:
+
+```
+platform ↔ client ↔ Netmiko device_type
+```
+
+This eliminates conditional logic in jobs and avoids cross-platform branching.
 
 ---
 
@@ -38,26 +54,45 @@ get_client(**params)
 ```
 
 Responsibilities:
+
 - validate `device_type`
 - select platform implementation
 - inject execution context
 - hide platform-specific classes
+- normalize caller inputs
 
-Jobs, CLI tools, and tests never instantiate clients directly.
+Jobs, CLI tools, and tests **never instantiate clients directly**.
+
+The factory is the **only decision point** for platform selection.
 
 ---
 
 ## ExecutionContext
 
-`ExecutionContext` carries execution-scoped data:
+`ExecutionContext` carries execution-scoped data and dependencies.
+
+Typical fields:
 
 - logger
-- device metadata
-- job metadata
+- device name / identifier
+- job identifier
 - dry-run flag
 - arbitrary metadata
 
-It is injected from the outside and remains framework-agnostic.
+Characteristics:
+
+- framework-agnostic
+- immutable by convention
+- injected from the outside
+- never created implicitly by helpers
+
+It allows the same codebase to run in:
+
+- Nautobot Jobs
+- CLI tools
+- tests
+
+without modification.
 
 ---
 
@@ -65,60 +100,111 @@ It is injected from the outside and remains framework-agnostic.
 
 `BaseClient` provides shared infrastructure:
 
-- connection lifecycle
+- connection lifecycle (`connect` / `disconnect`)
 - retry logic
 - logging integration
 - execution context handling
 
-Platform clients inherit from `BaseClient` and only implement
-platform-specific behavior.
+Platform clients inherit from `BaseClient` and implement only:
+
+- platform-specific connection parameters
+- platform-specific workflows
+
+`BaseClient` does **not**:
+
+- know job semantics
+- know Nautobot
+- know platform logic
 
 ---
 
 ## Unified Operation Pattern
 
-Each operation is split into three layers.
+All non-trivial behavior follows a strict three-layer pattern.
+
+This pattern is the core architectural invariant of the library.
+
+---
 
 ### 1. Helper (internal)
 
+Responsibilities:
+
 - pure logic
+- platform-specific details
 - no connection handling
 - no result objects
-- raises exceptions
+- raises exceptions on failure
+
+Helpers assume:
+
+- an active connection exists
+- lifecycle is handled elsewhere
 
 Examples:
+
 - `get_info`
 - `download_firmware`
+- `cleanup_old_backups`
+- `run_commands`
+
+Helpers are easy to unit test in isolation.
 
 ---
 
 ### 2. Operation / Workflow
 
-- manages connect / disconnect
-- produces `OperationResult`
-- records metadata and timing
-- re-raises exceptions
+Responsibilities:
+
+- manage connection lifecycle
+- orchestrate helpers
+- create and populate `OperationResult`
+- record timing and metadata
+- re-raise exceptions
+
+Characteristics:
+
+- explicit start / finish
+- no hidden retries
+- no swallowed errors
 
 Examples:
+
 - `upgrade`
 - `run_backup`
 - `read_info`
+- `run`
+
+Workflows describe *what happened*, not *how errors propagate*.
 
 ---
 
 ### 3. Client API
 
+Responsibilities:
+
 - thin public facade
-- selects helper or operation
-- optional structured result
+- delegates to workflows
+- exposes a stable API
+
+Characteristics:
+
+- no business logic
+- no platform branching
+- optional structured results
 
 Examples:
+
 ```python
-client.info()
-client.info(return_result=True)
+client.run("/system resource print")
+client.run(cmds, return_result=True)
+
 client.backup("daily", return_result=True)
 client.upgrade(return_result=True)
 ```
+
+Clients may be stateful (e.g. cached device info),
+but do not own lifecycle decisions.
 
 ---
 
@@ -126,15 +212,50 @@ client.upgrade(return_result=True)
 
 A single generic result object is used for all operations.
 
-Semantics are expressed via fields, not inheritance.
+Semantics are expressed via **fields**, not inheritance.
 
-Characteristics:
-- framework-agnostic
-- suitable for CLI, Jobs, and APIs
-- does not replace exceptions
+Key properties:
 
-Exceptions control flow.
-Results describe outcomes.
+- `success`
+- `operation`
+- `message`
+- `warnings`
+- `errors`
+- `metadata`
+- timestamps and duration
+
+Important rules:
+
+- exceptions control flow
+- results describe outcomes
+- results do not suppress failures
+
+This allows:
+
+- rich job reporting
+- CLI-friendly output
+- future API serialization
+
+without complicating control flow.
+
+---
+
+## Logical vs Platform Artifacts
+
+Some operations create artifacts that exist both:
+
+- on the device (platform-specific)
+- locally (job-level / user-facing)
+
+Example: backups
+
+Rules:
+
+- platform-specific identifiers (e.g. `nauto_` prefix) **never leak**
+- local artifacts use logical, human-readable names
+- `OperationResult` exposes only logical artifacts
+
+This separation protects jobs and tooling from platform internals.
 
 ---
 
@@ -142,38 +263,80 @@ Results describe outcomes.
 
 When used from Nautobot Jobs:
 
-- the Job provides the logger,
-- device platform is mapped directly to `device_type`,
-- Jobs remain thin and declarative,
-- results are consumed, not interpreted.
+- the Job provides the logger
+- device platform maps directly to `device_type`
+- Jobs remain thin and declarative
+- Jobs orchestrate workflows, not logic
 
 Typical flow:
+
 1. Job collects parameters
 2. Job creates client via factory
-3. Job executes operation
-4. Job logs based on `OperationResult`
+3. Job executes workflow(s)
+4. Job logs using `OperationResult`
+5. Job manages job-level artifacts
+
+The library never depends on Nautobot internals.
+
+---
+
+## CLI Integration Pattern
+
+When used from CLI tools:
+
+- standard Python logging is used
+- no execution context is required
+- workflows behave identically to Jobs
+
+CLI and Job behavior is intentionally symmetric.
 
 ---
 
 ## Testing Strategy
 
+Testing is a first-class design concern.
+
+Principles:
+
 - no real network connections
-- connection lifecycle mocked
+- lifecycle methods mocked
 - helpers tested in isolation
 - workflows tested with fake clients
+- platform details validated explicitly
+
+Tests describe contracts, not implementations.
 
 ---
 
 ## Extending the Library
 
-To add a new operation:
+### Adding a new operation
 
-1. create a helper
-2. create an operation/workflow
-3. expose it via the client API
+1. Create a helper
+2. Create a workflow using the helper
+3. Expose it via the client API
+4. Add focused unit tests
 
-To add a new platform:
+### Adding a new platform
 
-1. create a platform module
-2. implement a client inheriting from `BaseClient`
-3. register it in the factory
+1. Create a platform module
+2. Implement a client inheriting from `BaseClient`
+3. Implement platform helpers and workflows
+4. Register the platform in the factory
+
+No changes to jobs or existing platforms are required.
+
+---
+
+## Architectural Invariants
+
+The following rules must not be violated:
+
+- clients are created only via the factory
+- helpers never manage lifecycle
+- workflows always manage lifecycle
+- jobs never call helpers directly
+- platform details never leak into jobs
+- exceptions control flow
+
+These invariants are intentionally strict.
