@@ -74,6 +74,7 @@ def run_backup(
 
         backup_name = f"nauto_{name}"
         backup_file = f"{backup_name}.backup"
+        logical_file = f"{name}.backup"
 
         client.logger.info(f"Creating backup '{backup_file}'")
 
@@ -82,10 +83,10 @@ def run_backup(
             expect_string=r"\[.*\]",
         )
 
-        result.metadata["remote_file"] = backup_file
+        result.metadata["remote_file"] = logical_file
 
         # ---- download backup file via Paramiko SFTP ----
-        local_path = f"{download_dir.rstrip('/')}/{backup_file}"
+        local_path = f"{download_dir.rstrip('/')}/{logical_file}"
         client.logger.info(f"Downloading backup to {local_path}")
 
         sftp = client.conn.remote_conn_pre.open_sftp()

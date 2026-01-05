@@ -56,5 +56,5 @@ def test_backup_returns_result_and_downloads(monkeypatch, updater, tmp_path):
 
     # ---- SFTP interaction ----
     assert fake_sftp.downloads == [
-        ("test-backup.backup", f"{tmp_path}/test-backup.backup")
+        ("nauto_test-backup.backup", f"{tmp_path}/test-backup.backup")
     ]
