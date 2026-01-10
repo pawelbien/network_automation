@@ -37,6 +37,7 @@ def main():
         "key_file": "~/.ssh/id_rsa_test",
         "passphrase": passphrase,
         "use_keys": True,
+        "firmware_delivery": "download",
         "firmware_version": firmware_version,
     }
 

@@ -139,7 +139,7 @@ def test_download_firmware_too_small(mikrotik_client, fake_conn):
 # ---------- upgrade workflow ----------
 
 def test_upgrade_skipped_if_not_newer(mocker, mikrotik_client, fake_conn):
-    mikrotik_client.firmware_method = "download"
+    mikrotik_client.firmware_delivery = "download"
 
     mocker.patch(
         "network_automation.base_client.ConnectHandler",
@@ -157,7 +157,7 @@ def test_upgrade_skipped_if_not_newer(mocker, mikrotik_client, fake_conn):
 
 
 def test_upgrade_success(mocker, mikrotik_client, fake_conn):
-    mikrotik_client.firmware_method = "download"
+    mikrotik_client.firmware_delivery = "download"
 
     mocker.patch(
         "network_automation.base_client.ConnectHandler",
@@ -196,7 +196,7 @@ def test_upgrade_success(mocker, mikrotik_client, fake_conn):
 
 
 def test_upgrade_version_mismatch(mocker, mikrotik_client, fake_conn):
-    mikrotik_client.firmware_method = "download"
+    mikrotik_client.firmware_delivery = "download"
 
     mocker.patch(
         "network_automation.base_client.ConnectHandler",

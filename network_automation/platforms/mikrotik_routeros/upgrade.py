@@ -117,7 +117,7 @@ def upload_firmware(client):
 
     if not client.repo_path:
         raise RuntimeError(
-            "repo_path is required when firmware_method='upload'"
+            "repo_path is required when firmware_delivery='upload'"
         )
 
     filename = firmware_filename(client.version, client.arch)
@@ -146,14 +146,14 @@ def provide_firmware(client):
     """
     Provide firmware to device using selected method.
 
-    firmware_method is REQUIRED.
+    firmware_delivery is REQUIRED.
     """
 
-    method = getattr(client, "firmware_method", None)
+    method = getattr(client, "firmware_delivery", None)
 
     if not method:
         raise RuntimeError(
-            "firmware_method must be explicitly set "
+            "firmware_delivery must be explicitly set "
             "('upload' or 'download')"
         )
 
@@ -165,7 +165,7 @@ def provide_firmware(client):
     if method == "upload":
         if not client.repo_path:
             raise RuntimeError(
-                "firmware_method='upload' requires repo_path"
+                "firmware_delivery='upload' requires repo_path"
             )
         upload_firmware(client)
 
@@ -174,7 +174,7 @@ def provide_firmware(client):
 
     else:
         raise ValueError(
-            f"Unsupported firmware_method: {method}"
+            f"Unsupported firmware_delivery: {method}"
         )
 
 
