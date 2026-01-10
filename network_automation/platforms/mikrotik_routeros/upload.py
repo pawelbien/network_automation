@@ -1,11 +1,9 @@
-# network_automation/platforms/mikrotik_routeros/upload.py
-
 from pathlib import Path
 from network_automation.results import OperationResult
 
 
 # -------------------------------------------------------
-# Upload helper
+# Upload helper (low-level)
 # -------------------------------------------------------
 
 def upload_files(
@@ -81,6 +79,19 @@ def run_upload(
         result.message = "Files uploaded successfully"
 
         return result if return_result else None
+
+    except FileNotFoundError as exc:
+        missing = Path(exc.args[0])
+
+        msg = (
+            "Local file not found for upload. "
+            f"Expected file: {missing}"
+        )
+
+        result.success = False
+        result.errors.append(msg)
+
+        raise RuntimeError(msg) from exc
 
     except Exception as exc:
         result.success = False
