@@ -145,6 +145,7 @@ Examples:
 
 - `get_info`
 - `download_firmware`
+- `upload_firmware`
 - `cleanup_old_backups`
 - `run_commands`
 
@@ -205,6 +206,33 @@ client.upgrade(return_result=True)
 
 Clients may be stateful (e.g. cached device info),
 but do not own lifecycle decisions.
+
+---
+
+## Firmware Delivery Model
+
+Firmware upgrades require an explicit **delivery strategy**.
+
+The delivery mechanism is selected via the client attribute:
+
+```
+firmware_delivery
+```
+
+Supported values:
+
+- `download` — device fetches firmware from a remote repository
+- `upload` — firmware is uploaded to the device via SSH/SFTP
+
+Rules:
+
+- `firmware_delivery` **must be explicitly set**
+- there is **no default**
+- `upload` requires `repo_path`
+- `download` requires `repo_url`
+
+This fail-fast model avoids hidden behavior and ensures
+that upgrade semantics are always explicit.
 
 ---
 
@@ -337,6 +365,7 @@ The following rules must not be violated:
 - workflows always manage lifecycle
 - jobs never call helpers directly
 - platform details never leak into jobs
+- delivery strategies must be explicit
 - exceptions control flow
 
 These invariants are intentionally strict.
