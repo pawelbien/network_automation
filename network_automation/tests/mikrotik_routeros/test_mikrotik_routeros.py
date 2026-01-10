@@ -80,8 +80,8 @@ def test_download_firmware_skips_if_exists_flash(mikrotik_client, fake_conn):
     mikrotik_client.version = "7.14"
 
     fake_conn.send_command.side_effect = [
-        FILE_OUT_FLASH,   # initial -> exists
-        FILE_OUT_FLASH,   # refresh
+        FILE_OUT_FLASH,
+        FILE_OUT_FLASH,
     ]
 
     download_firmware(mikrotik_client)
@@ -95,8 +95,8 @@ def test_download_firmware_skips_if_exists_noflash(mikrotik_client, fake_conn):
     mikrotik_client.version = "7.14"
 
     fake_conn.send_command.side_effect = [
-        FILE_OUT_NOFLASH,  # initial -> exists
-        FILE_OUT_NOFLASH,  # refresh
+        FILE_OUT_NOFLASH,
+        FILE_OUT_NOFLASH,
     ]
 
     download_firmware(mikrotik_client)
@@ -110,13 +110,12 @@ def test_download_firmware_fetch_and_validate(mikrotik_client, fake_conn):
     mikrotik_client.version = "7.14"
 
     fake_conn.send_command.side_effect = [
-        "",               # not exists
-        FILE_OUT_FLASH,   # after fetch
+        "",
+        FILE_OUT_FLASH,
     ]
     fake_conn.send_command_timing.return_value = "finished"
 
     download_firmware(mikrotik_client)
-
 
     fake_conn.send_command_timing.assert_called_once()
 
@@ -129,17 +128,23 @@ def test_download_firmware_too_small(mikrotik_client, fake_conn):
     small_out = FILE_OUT_NOFLASH.replace("12.5MiB", "5.0MiB")
 
     fake_conn.send_command.side_effect = [
-        "",         # not exists
-        small_out,  # too small
+        "",
+        small_out,
     ]
 
     with pytest.raises(RuntimeError):
         download_firmware(mikrotik_client)
 
+
 # ---------- upgrade workflow ----------
 
 def test_upgrade_skipped_if_not_newer(mocker, mikrotik_client, fake_conn):
-    mocker.patch("network_automation.base_client.ConnectHandler", return_value=fake_conn)
+    mikrotik_client.firmware_method = "download"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
 
     fake_conn.send_command.return_value = """
         version: 7.14
@@ -152,9 +157,11 @@ def test_upgrade_skipped_if_not_newer(mocker, mikrotik_client, fake_conn):
 
 
 def test_upgrade_success(mocker, mikrotik_client, fake_conn):
+    mikrotik_client.firmware_method = "download"
+
     mocker.patch(
         "network_automation.base_client.ConnectHandler",
-        return_value=fake_conn
+        return_value=fake_conn,
     )
 
     fake_conn.send_command.side_effect = [
@@ -170,10 +177,16 @@ def test_upgrade_success(mocker, mikrotik_client, fake_conn):
 
     fake_conn.send_command_timing.return_value = "rebooting"
 
-    mocker.patch.object(mikrotik_client, "wait_for_reconnect", return_value=fake_conn)
+    mocker.patch.object(
+        mikrotik_client,
+        "wait_for_reconnect",
+        return_value=fake_conn,
+    )
+
     mock_download = mocker.patch(
         "network_automation.platforms.mikrotik_routeros.upgrade.download_firmware"
     )
+
     mocker.patch.object(mikrotik_client, "reboot")
 
     mikrotik_client.upgrade()
@@ -183,7 +196,12 @@ def test_upgrade_success(mocker, mikrotik_client, fake_conn):
 
 
 def test_upgrade_version_mismatch(mocker, mikrotik_client, fake_conn):
-    mocker.patch("network_automation.base_client.ConnectHandler", return_value=fake_conn)
+    mikrotik_client.firmware_method = "download"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
 
     fake_conn.send_command.side_effect = [
         """
@@ -196,8 +214,16 @@ def test_upgrade_version_mismatch(mocker, mikrotik_client, fake_conn):
         """,
     ]
 
-    mocker.patch.object(mikrotik_client, "wait_for_reconnect", return_value=fake_conn)
-    mocker.patch("network_automation.platforms.mikrotik_routeros.upgrade.download_firmware")
+    mocker.patch.object(
+        mikrotik_client,
+        "wait_for_reconnect",
+        return_value=fake_conn,
+    )
+
+    mocker.patch(
+        "network_automation.platforms.mikrotik_routeros.upgrade.download_firmware"
+    )
+
     mocker.patch.object(mikrotik_client, "reboot")
 
     with pytest.raises(RuntimeError):

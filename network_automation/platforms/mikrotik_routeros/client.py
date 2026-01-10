@@ -27,6 +27,8 @@ class MikrotikRouterOS(BaseClient):
         key_file: str | None = None,
         passphrase: str | None = None,
         use_keys: bool = False,
+        firmware_method: str | None = None,
+        repo_path: str | None = None,
         repo_url="https://download.mikrotik.com/routeros",
         port=22,
         connect_retries=2,
@@ -67,6 +69,8 @@ class MikrotikRouterOS(BaseClient):
         self.host = host
         self.username = username
         self.version = firmware_version
+        self.firmware_method = firmware_method
+        self.repo_path = repo_path
         self.repo_url = repo_url.rstrip("/")
 
         # Reconnect-after-reboot configuration
