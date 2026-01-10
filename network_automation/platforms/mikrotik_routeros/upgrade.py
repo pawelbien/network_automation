@@ -128,7 +128,11 @@ def upload_firmware(client):
     )
 
     if not local_file.exists():
-        raise FileNotFoundError(local_file)
+        raise RuntimeError(
+            "Firmware file not found in local repository. "
+            f"repo_path={client.repo_path}, "
+            f"expected_file={local_file}"
+        )
 
     client.logger.info(
         "Uploading firmware from local repository: %s",
