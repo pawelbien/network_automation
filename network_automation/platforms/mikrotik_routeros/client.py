@@ -5,10 +5,12 @@ from netmiko import ConnectHandler
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.mikrotik_routeros.backup import run_backup
+from network_automation.platforms.mikrotik_routeros.download import run_download
 from network_automation.platforms.mikrotik_routeros.info import get_info
 from network_automation.platforms.mikrotik_routeros.run import run as run_helper
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
 from network_automation.platforms.mikrotik_routeros.upload import run_upload
+
 
 
 class MikrotikRouterOS(BaseClient):
@@ -230,3 +232,25 @@ class MikrotikRouterOS(BaseClient):
             remote_dir=remote_dir,
             return_result=return_result,
         )
+
+    # -------------------------------------------------------
+    # File download
+    # -------------------------------------------------------
+
+    def download(
+        self,
+        *,
+        files: list[str],
+        local_dir: str,
+        return_result: bool = False,
+    ):
+        """
+        Download files from device via SFTP
+        """
+        return run_download(
+            self,
+            files=files,
+            local_dir=local_dir,
+            return_result=return_result,
+        )
+
