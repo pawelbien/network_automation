@@ -8,6 +8,7 @@ from network_automation.platforms.mikrotik_routeros.backup import run_backup
 from network_automation.platforms.mikrotik_routeros.info import get_info
 from network_automation.platforms.mikrotik_routeros.run import run as run_helper
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
+from network_automation.platforms.mikrotik_routeros.upload import run_upload
 
 
 class MikrotikRouterOS(BaseClient):
@@ -209,3 +210,23 @@ class MikrotikRouterOS(BaseClient):
             return_result=return_result,
         )
 
+    # -------------------------------------------------------
+    # File upload
+    # -------------------------------------------------------
+
+    def upload(
+        self,
+        *,
+        files: list[str],
+        remote_dir: str = "/",
+        return_result: bool = False,
+    ):
+        """
+        Upload local files to device via SFTP.
+        """
+        return run_upload(
+            self,
+            files=files,
+            remote_dir=remote_dir,
+            return_result=return_result,
+        )
