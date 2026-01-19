@@ -172,7 +172,7 @@ class MikrotikRouterOS(BaseClient):
                 # ---- give RouterOS time to initialize CLI ----
                 time.sleep(1.0)
 
-                # ---- probe CLI readiness (bounded) ----
+                # ---- probe CLI readiness (bounded, must not hang) ----
                 out = conn.send_command(
                     "/system resource print",
                     delay_factor=2,
@@ -184,17 +184,18 @@ class MikrotikRouterOS(BaseClient):
                         "Device fully online (SSH + CLI ready)."
                     )
                     self.conn = conn
-                    return conn
+                    return conn   # SUCCESS → do NOT disconnect
 
             except Exception:
+                # retry silently; heartbeat will indicate progress
                 pass
 
-            finally:
-                if conn:
-                    try:
-                        conn.disconnect()
-                    except Exception:
-                        pass
+            # ---- cleanup only failed attempt ----
+            if conn:
+                try:
+                    conn.disconnect()
+                except Exception:
+                    pass
 
             # ---- heartbeat INFO every 60s ----
             now = time.time()
