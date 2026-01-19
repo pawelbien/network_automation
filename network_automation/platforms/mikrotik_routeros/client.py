@@ -146,26 +146,37 @@ class MikrotikRouterOS(BaseClient):
 
     def wait_for_reconnect(self):
         """Wait until RouterOS is reachable via SSH and CLI is ready."""
-        self.logger.info(f"Waiting for {self.host} to reconnect...")
+
+        self.logger.info(
+            "Waiting for %s to reconnect...",
+            self.host,
+        )
 
         start = time.time()
+        last_log = start
 
         while True:
-            if time.time() - start > self.reconnect_timeout:
+            elapsed = time.time() - start
+
+            if elapsed > self.reconnect_timeout:
                 raise TimeoutError(
-                    f"Device did not reconnect within {self.reconnect_timeout} seconds."
+                    f"Device did not reconnect within "
+                    f"{self.reconnect_timeout} seconds."
                 )
 
             conn = None
             try:
+                # ---- attempt SSH connection ----
                 conn = ConnectHandler(**self.device)
 
-                # Give RouterOS a moment to finish CLI initialization
+                # ---- give RouterOS time to initialize CLI ----
                 time.sleep(1.0)
 
+                # ---- probe CLI readiness (bounded) ----
                 out = conn.send_command(
                     "/system resource print",
                     delay_factor=2,
+                    read_timeout=10,
                 )
 
                 if "version" in out.lower():
@@ -175,14 +186,29 @@ class MikrotikRouterOS(BaseClient):
                     self.conn = conn
                     return conn
 
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.debug(
+                    "Reconnect attempt failed: %s",
+                    exc,
+                )
 
-            if conn:
-                try:
-                    conn.disconnect()
-                except Exception:
-                    pass
+            finally:
+                if conn:
+                    try:
+                        conn.disconnect()
+                    except Exception:
+                        pass
+
+            # ---- heartbeat INFO every 60s ----
+            now = time.time()
+            if now - last_log > 60:
+                self.logger.info(
+                    "Still waiting for %s to reconnect "
+                    "(%ds elapsed)",
+                    self.host,
+                    int(elapsed),
+                )
+                last_log = now
 
             time.sleep(self.reconnect_delay)
 
