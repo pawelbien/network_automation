@@ -186,11 +186,8 @@ class MikrotikRouterOS(BaseClient):
                     self.conn = conn
                     return conn
 
-            except Exception as exc:
-                self.logger.debug(
-                    "Reconnect attempt failed: %s",
-                    exc,
-                )
+            except Exception:
+                pass
 
             finally:
                 if conn:
