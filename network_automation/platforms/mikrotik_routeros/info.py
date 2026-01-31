@@ -6,6 +6,9 @@ Mikrotik device information helpers.
 
 import re
 
+from network_automation.results import OperationResult
+
+
 def get_info(client):
     """Read system architecture and version."""
     client.logger.info("Reading system info...")
@@ -43,8 +46,6 @@ def normalize_version(v):
 def is_newer_version(current_version, new_version):
     """Return True if new_version > current_version."""
     return normalize_version(new_version) > normalize_version(current_version)
-
-from network_automation.results import OperationResult
 
 
 def read_info(client, *, return_result: bool = False):
