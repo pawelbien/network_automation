@@ -171,7 +171,8 @@ Characteristics:
 
 Examples:
 
-- `upgrade`
+- `upgrade` (RouterOS)
+- `bootloader_upgrade` (RouterBOARD firmware)
 - `run_backup`
 - `read_info`
 - `run`
@@ -233,6 +234,31 @@ Rules:
 
 This fail-fast model avoids hidden behavior and ensures
 that upgrade semantics are always explicit.
+
+---
+
+## Bootloader (RouterBOARD) Upgrade Model
+
+Some platforms (e.g. MikroTik RouterOS) support a separate
+**bootloader (RouterBOARD firmware)** upgrade.
+
+Characteristics:
+
+- Bootloader upgrade is a **separate operation** from OS upgrade
+- It uses platform-specific commands
+- It requires an **additional reboot**
+- It is **never implicit**
+
+For MikroTik RouterOS:
+
+- RouterOS upgrade **must complete and reboot first**
+- Bootloader upgrade can be performed **only after the OS reboot**
+- A second reboot is always required to apply bootloader changes
+
+Bootloader upgrade is exposed as an explicit workflow:
+
+```python
+client.bootloader_upgrade(return_result=True)
 
 ---
 
@@ -344,6 +370,7 @@ Tests describe contracts, not implementations.
 2. Create a workflow using the helper
 3. Expose it via the client API
 4. Add focused unit tests
+5. Document any lifecycle or reboot implications
 
 ### Adding a new platform
 
@@ -366,6 +393,7 @@ The following rules must not be violated:
 - jobs never call helpers directly
 - platform details never leak into jobs
 - delivery strategies must be explicit
+- reboot-causing operations must be explicit
 - exceptions control flow
 
 These invariants are intentionally strict.

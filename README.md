@@ -35,6 +35,7 @@ Currently supported platform:
 - Firmware upgrade (`upgrade`)
   - online (device downloads firmware)
   - offline (firmware uploaded via SSH/SFTP)
+- Bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only)
 
 ---
 
@@ -74,6 +75,24 @@ client = get_client(
 )
 
 client.upgrade()
+```
+
+### Bootloader Firmware Upgrade (RouterOS)
+
+MikroTik RouterOS devices support a separate **bootloader
+(RouterBOARD firmware)** upgrade.
+
+Characteristics:
+
+- Bootloader upgrade is a **separate operation** from RouterOS upgrade
+- It is **never implicit**
+- It always requires an **additional reboot**
+- It must be explicitly enabled by the caller
+
+Example:
+
+```python
+client.bootloader_upgrade(return_result=True)
 ```
 
 ### Offline upgrade (upload)
