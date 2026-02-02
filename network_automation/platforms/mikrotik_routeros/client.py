@@ -9,8 +9,8 @@ from network_automation.platforms.mikrotik_routeros.download import run_download
 from network_automation.platforms.mikrotik_routeros.info import get_info
 from network_automation.platforms.mikrotik_routeros.run import run as run_helper
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
+from network_automation.platforms.mikrotik_routeros.bootloader import bootloader_upgrade
 from network_automation.platforms.mikrotik_routeros.upload import run_upload
-
 
 
 class MikrotikRouterOS(BaseClient):
@@ -228,6 +228,17 @@ class MikrotikRouterOS(BaseClient):
 
     def upgrade(self, *, return_result: bool = False):
         return upgrade_helper(self, return_result=return_result)
+
+    # -------------------------------------------------------
+    # Bootloader upgrade
+    # -------------------------------------------------------
+
+    def bootloader_upgrade(self, *, return_result: bool = False):
+        """
+        Upgrade device bootloader firmware (RouterBOARD).
+        This is a separate operation from RouterOS upgrade.
+        """
+        return bootloader_upgrade(self, return_result=return_result)
 
     # -------------------------------------------------------
     # Run arbitrary commands
