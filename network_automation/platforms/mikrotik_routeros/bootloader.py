@@ -27,6 +27,12 @@ def get_bootloader_info(client):
         "/system routerboard print"
     )
 
+    # CHR case
+    if "bad command name" in output.lower():
+        raise RuntimeError(
+            "Bootloader not supported on this platform"
+        )
+
     current = None
     upgrade = None
 
@@ -74,6 +80,7 @@ def bootloader_upgrade(client, *, return_result: bool = False):
     Behavior:
     - Reads current and upgrade bootloader firmware
     - Skips if already up-to-date
+    - Skips explicitly if bootloader is not supported (e.g. CHR)
     - Triggers bootloader upgrade
     - Re-reads routerboard state (best-effort confirmation)
     - Reboots device
@@ -92,15 +99,31 @@ def bootloader_upgrade(client, *, return_result: bool = False):
         # Initial state
         # -------------------------------------------------
 
-        current, target, raw_before = get_bootloader_info(client)
+        try:
+            current, target, raw_before = get_bootloader_info(client)
+
+        except Exception as exc:
+            msg = str(exc).lower()
+
+            # CHR / platform without RouterBOARD
+            if "bootloader not supported" in msg:
+                skip_msg = (
+                    "Bootloader upgrade not supported on this platform"
+                )
+                client.logger.info(skip_msg)
+                result.message = skip_msg
+                result.metadata["skipped"] = True
+                result.metadata["reason"] = "bootloader not supported"
+                return result if return_result else None
+
+            # any other error is real
+            raise
 
         result.metadata["current_bootloader"] = current
         result.metadata["target_bootloader"] = target
 
         if normalize_version(current) == normalize_version(target):
-            msg = (
-                f"Bootloader already up-to-date ({current})"
-            )
+            msg = f"Bootloader already up-to-date ({current})"
             client.logger.info(msg)
             result.message = msg
             result.metadata["skipped"] = True
@@ -125,27 +148,39 @@ def bootloader_upgrade(client, *, return_result: bool = False):
         # Re-read state (confirmation by observation)
         # -------------------------------------------------
 
-        current_after, target_after, raw_after = get_bootloader_info(client)
-
-        result.metadata["current_bootloader_after"] = current_after
-        result.metadata["target_bootloader_after"] = target_after
-
-        if normalize_version(current_after) != normalize_version(target_after):
-            # Expected before reboot: upgrade staged
-            result.metadata["upgrade_staged"] = True
-            client.logger.info(
-                "Bootloader upgrade staged successfully "
-                "(reboot required)"
+        try:
+            current_after, target_after, raw_after = get_bootloader_info(
+                client
             )
-        else:
+
+            result.metadata["current_bootloader_after"] = current_after
+            result.metadata["target_bootloader_after"] = target_after
+
+            if normalize_version(current_after) != normalize_version(
+                target_after
+            ):
+                # Expected before reboot: upgrade staged
+                result.metadata["upgrade_staged"] = True
+                client.logger.info(
+                    "Bootloader upgrade staged successfully "
+                    "(reboot required)"
+                )
+            else:
+                client.logger.warning(
+                    "Bootloader upgrade state unclear after staging; "
+                    "continuing with reboot"
+                )
+
+            # Optional diagnostic: inline message presence
+            if "firmware upgraded successfully" in raw_after.lower():
+                result.metadata["confirmation_message_seen"] = True
+
+        except Exception:
+            # Best-effort only; do not fail the workflow here
             client.logger.warning(
-                "Bootloader upgrade state unclear after staging; "
+                "Unable to re-read bootloader state after staging; "
                 "continuing with reboot"
             )
-
-        # Optional diagnostic: inline message presence
-        if "Firmware upgraded successfully" in raw_after:
-            result.metadata["confirmation_message_seen"] = True
 
         # -------------------------------------------------
         # Reboot & reconnect

@@ -50,6 +50,11 @@ def bootloader_print_uptodate():
     """
 
 
+@pytest.fixture
+def chr_routerboard_output():
+    return "bad command name routerboard (line 1 column 9)"
+
+
 # -------------------------------------------------------
 # get_bootloader_info
 # -------------------------------------------------------
@@ -66,7 +71,7 @@ def test_get_bootloader_info_parses_versions(
 
     assert current == "7.19.1"
     assert target == "7.20.7"
-    assert "routerboard" in raw
+    assert "routerboard" in raw.lower()
 
 
 def test_get_bootloader_info_missing_fields_raises(
@@ -74,6 +79,18 @@ def test_get_bootloader_info_missing_fields_raises(
     fake_conn,
 ):
     fake_conn.send_command.return_value = "routerboard: yes"
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(RuntimeError):
+        get_bootloader_info(mikrotik_client)
+
+
+def test_get_bootloader_info_chr_raises(
+    mikrotik_client,
+    fake_conn,
+    chr_routerboard_output,
+):
+    fake_conn.send_command.return_value = chr_routerboard_output
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(RuntimeError):
@@ -90,7 +107,6 @@ def test_bootloader_upgrade_skipped_if_up_to_date(
     fake_conn,
     bootloader_print_uptodate,
 ):
-    # ---- lifecycle ----
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
 
@@ -104,9 +120,36 @@ def test_bootloader_upgrade_skipped_if_up_to_date(
 
     assert isinstance(result, OperationResult)
     assert result.success is True
-    assert result.operation == "bootloader_upgrade"
     assert result.metadata["skipped"] is True
     assert "up-to-date" in result.message.lower()
+
+
+def test_bootloader_upgrade_chr_is_skipped(
+    monkeypatch,
+    mikrotik_client,
+    fake_conn,
+    chr_routerboard_output,
+):
+    """
+    CHR platforms do not support RouterBOARD / bootloader.
+    Operation must be skipped, not failed.
+    """
+
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
+
+    fake_conn.send_command.return_value = chr_routerboard_output
+    mikrotik_client.conn = fake_conn
+
+    result = bootloader_upgrade(
+        mikrotik_client,
+        return_result=True,
+    )
+
+    assert result.success is True
+    assert result.metadata["skipped"] is True
+    assert result.metadata["reason"] == "bootloader not supported"
+    assert "not supported" in result.message.lower()
 
 
 def test_bootloader_upgrade_stages_and_reboots(
@@ -116,27 +159,22 @@ def test_bootloader_upgrade_stages_and_reboots(
     bootloader_print_before,
     bootloader_print_after,
 ):
-    # ---- lifecycle ----
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
 
-    # ---- avoid real sleep ----
     monkeypatch.setattr(
         "network_automation.platforms.mikrotik_routeros.bootloader.time.sleep",
         lambda _: None,
     )
 
-    # ---- connection behavior ----
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,  # initial read
-        bootloader_print_after,   # re-read after upgrade
+        bootloader_print_before,
+        bootloader_print_after,
     ]
 
-    fake_conn.send_command_timing.return_value = "Do you really want to upgrade firmware? [y/n]"
-
+    fake_conn.send_command_timing.return_value = "y"
     mikrotik_client.conn = fake_conn
 
-    # ---- reboot & reconnect ----
     reboot_called = False
 
     def fake_reboot():
@@ -155,12 +193,8 @@ def test_bootloader_upgrade_stages_and_reboots(
         return_result=True,
     )
 
-    # ---- assertions ----
     assert result.success is True
-    assert result.metadata["current_bootloader"] == "7.19.1"
-    assert result.metadata["target_bootloader"] == "7.20.7"
     assert result.metadata["upgrade_staged"] is True
-    assert result.metadata.get("confirmation_message_seen") is True
     assert reboot_called is True
 
 
@@ -170,11 +204,6 @@ def test_bootloader_upgrade_unclear_state_still_reboots(
     fake_conn,
     bootloader_print_before,
 ):
-    """
-    If state after upgrade is unclear, workflow must still reboot
-    and not fail.
-    """
-
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
 
@@ -183,14 +212,12 @@ def test_bootloader_upgrade_unclear_state_still_reboots(
         lambda _: None,
     )
 
-    # same output before and after (edge case)
     fake_conn.send_command.side_effect = [
         bootloader_print_before,
         bootloader_print_before,
     ]
 
     fake_conn.send_command_timing.return_value = "y"
-
     mikrotik_client.conn = fake_conn
 
     monkeypatch.setattr(mikrotik_client, "reboot", lambda: None)

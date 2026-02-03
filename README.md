@@ -36,6 +36,9 @@ Currently supported platform:
   - online (device downloads firmware)
   - offline (firmware uploaded via SSH/SFTP)
 - Bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only)
+  - optional
+  - platform-dependent (not supported on CHR)
+  - requires reboot to take effect
 
 ---
 
@@ -88,6 +91,7 @@ Characteristics:
 - It is **never implicit**
 - It always requires an **additional reboot**
 - It must be explicitly enabled by the caller
+- It is **not supported on all platforms** (e.g. CHR)
 
 Example:
 

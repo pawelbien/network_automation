@@ -248,6 +248,7 @@ Characteristics:
 - It uses platform-specific commands
 - It requires an **additional reboot**
 - It is **never implicit**
+- It may not be supported on all platforms (e.g. CHR)
 
 For MikroTik RouterOS:
 
@@ -395,5 +396,6 @@ The following rules must not be violated:
 - delivery strategies must be explicit
 - reboot-causing operations must be explicit
 - exceptions control flow
+- operations may explicitly skip unsupported platforms (reported via OperationResult)
 
 These invariants are intentionally strict.
