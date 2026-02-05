@@ -233,6 +233,12 @@ def upgrade(client, *, return_result: bool = False):
         provide_firmware(client)
 
         # ---- reboot & reconnect ----
+        client.logger.info(
+            "Upgrade: %s -> %s — reboot required",
+            client.current_version,
+            client.version,
+        )
+        
         client.reboot()
         client.conn = client.wait_for_reconnect()
 
