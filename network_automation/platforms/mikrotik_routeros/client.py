@@ -88,9 +88,9 @@ class MikrotikRouterOS(BaseClient):
 
     def get_info(self):
         """Read device architecture and RouterOS version."""
-        arch, version = get_info(self)
-        self.arch = arch
-        self.current_version = version
+        info = get_info(self)
+        self.arch = info["arch"]
+        self.current_version = info["version"]
 
         self.logger.info(f"Architecture: {self.arch}")
         self.logger.info(f"Current version: {self.current_version}")

@@ -30,7 +30,7 @@ def get_info(client):
     if not version:
         raise ValueError("Version not found in system resource output.")
 
-    return arch, version
+    return {"arch": arch, "version": version}
 
 def normalize_version(v):
     """Normalize RouterOS version string to tuple."""
@@ -64,17 +64,17 @@ def read_info(client, *, return_result: bool = False):
 
     client.connect()
     try:
-        arch, version = get_info(client)
+        info = get_info(client)
 
         # Persist on client (existing behavior pattern)
-        client.arch = arch
-        client.current_version = version
+        client.arch = info["arch"]
+        client.current_version = info["version"]
 
-        result.metadata["architecture"] = arch
-        result.metadata["version"] = version
+        result.metadata["architecture"] = info["arch"]
+        result.metadata["version"] = info["version"]
         result.message = "System information read successfully"
 
-        return result if return_result else (arch, version)
+        return result if return_result else (info["arch"], info["version"])
 
     except Exception as exc:
         result.success = False

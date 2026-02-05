@@ -207,12 +207,12 @@ def upgrade(client, *, return_result: bool = False):
 
     client.connect()
     try:
-        arch, current_version = get_info(client)
-        client.arch = arch
-        client.current_version = current_version
+        info = get_info(client)
+        client.arch = info["arch"]
+        client.current_version = info["version"]
 
-        result.metadata["current_version"] = current_version
-        result.metadata["arch"] = arch
+        result.metadata["current_version"] = info["version"]
+        result.metadata["arch"] = info["arch"]
 
         if not is_newer_version(
             client.current_version,
@@ -237,7 +237,8 @@ def upgrade(client, *, return_result: bool = False):
         client.conn = client.wait_for_reconnect()
 
         # ---- verify version ----
-        arch, final_version = get_info(client)
+        info = get_info(client)
+        final_version = info["version"]
         client.current_version = final_version
 
         result.metadata["final_version"] = final_version
