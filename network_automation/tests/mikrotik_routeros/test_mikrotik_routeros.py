@@ -6,6 +6,8 @@ from network_automation.platforms.mikrotik_routeros.client import MikrotikRouter
 from network_automation.platforms.mikrotik_routeros.info import (
     normalize_version,
     is_newer_version,
+    get_software_info,
+    get_hardware_info,
 )
 from network_automation.platforms.mikrotik_routeros.upgrade import download_firmware
 
@@ -53,6 +55,119 @@ def test_get_info_missing_arch(mikrotik_client, fake_conn):
 
     with pytest.raises(ValueError):
         mikrotik_client.get_info()
+
+
+# ---------- get_software_info helper ----------
+
+def test_get_software_info_parsing(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = """
+        uptime: 1d
+        version: 7.13.5 (stable)
+        architecture-name: arm64
+    """
+    mikrotik_client.conn = fake_conn
+
+    info = get_software_info(mikrotik_client)
+
+    assert info["arch"] == "arm64"
+    assert info["version"] == "7.13.5 (stable)"
+
+
+def test_get_software_info_missing_version(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = "architecture-name: arm64"
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="Version not found"):
+        get_software_info(mikrotik_client)
+
+
+def test_get_software_info_missing_arch(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = "version: 7.13.5"
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="Architecture not found"):
+        get_software_info(mikrotik_client)
+
+
+# ---------- get_hardware_info helper ----------
+
+def test_get_hardware_info_parsing(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = """
+       routerboard: yes
+             model: CCR2004-16G-2S+
+          revision: r2
+     serial-number: HG6099981S2
+  current-firmware: 7.19.1
+  upgrade-firmware: 7.20.7
+    """
+    mikrotik_client.conn = fake_conn
+
+    info = get_hardware_info(mikrotik_client)
+
+    assert info["serial"] == "HG6099981S2"
+    assert info["model"] == "CCR2004-16G-2S+"
+    assert info["bootloader_current_firmware"] == "7.19.1"
+    assert info["bootloader_upgrade_firmware"] == "7.20.7"
+
+
+def test_get_hardware_info_chr_raises(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = "bad command name routerboard (line 1 column 9)"
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(RuntimeError, match="Hardware info not supported"):
+        get_hardware_info(mikrotik_client)
+
+
+def test_get_hardware_info_missing_serial(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = """
+       routerboard: yes
+             model: CCR2004-16G-2S+
+  current-firmware: 7.19.1
+  upgrade-firmware: 7.20.7
+    """
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="Serial number not found"):
+        get_hardware_info(mikrotik_client)
+
+
+def test_get_hardware_info_missing_model(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = """
+       routerboard: yes
+     serial-number: HG6099981S2
+  current-firmware: 7.19.1
+  upgrade-firmware: 7.20.7
+    """
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="Model not found"):
+        get_hardware_info(mikrotik_client)
+
+
+def test_get_hardware_info_missing_current_firmware(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = """
+       routerboard: yes
+             model: CCR2004-16G-2S+
+     serial-number: HG6099981S2
+  upgrade-firmware: 7.20.7
+    """
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="Current firmware not found"):
+        get_hardware_info(mikrotik_client)
+
+
+def test_get_hardware_info_missing_upgrade_firmware(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = """
+       routerboard: yes
+             model: CCR2004-16G-2S+
+     serial-number: HG6099981S2
+  current-firmware: 7.19.1
+    """
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="Upgrade firmware not found"):
+        get_hardware_info(mikrotik_client)
 
 
 # ---------- download_firmware ----------

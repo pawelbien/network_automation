@@ -6,52 +6,10 @@ Bootloader (RouterBOARD firmware) upgrade support for Mikrotik RouterOS.
 
 import time
 from network_automation.results import OperationResult
-from network_automation.platforms.mikrotik_routeros.info import normalize_version
-
-
-# -------------------------------------------------------
-# Helpers (pure logic, no lifecycle)
-# -------------------------------------------------------
-
-def get_bootloader_info(client):
-    """
-    Read bootloader (RouterBOARD) firmware information.
-
-    Returns:
-    - current_firmware (str)
-    - upgrade_firmware (str)
-    - raw_output (str)
-    """
-
-    output = client.conn.send_command(
-        "/system routerboard print"
-    )
-
-    # CHR case
-    if "bad command name" in output.lower():
-        raise RuntimeError(
-            "Bootloader not supported on this platform"
-        )
-
-    current = None
-    upgrade = None
-
-    for line in output.splitlines():
-        line = line.strip()
-
-        if line.startswith("current-firmware:"):
-            current = line.split(":", 1)[1].strip()
-
-        elif line.startswith("upgrade-firmware:"):
-            upgrade = line.split(":", 1)[1].strip()
-
-    if not current or not upgrade:
-        raise RuntimeError(
-            "Unable to read bootloader firmware information "
-            "from /system routerboard print"
-        )
-
-    return current, upgrade, output
+from network_automation.platforms.mikrotik_routeros.info import (
+    normalize_version,
+    get_hardware_info,
+)
 
 
 def upgrade_bootloader_helper(client):
@@ -100,13 +58,15 @@ def bootloader_upgrade(client, *, return_result: bool = False):
         # -------------------------------------------------
 
         try:
-            current, target, raw_before = get_bootloader_info(client)
+            hardware_info = get_hardware_info(client)
+            current = hardware_info["bootloader_current_firmware"]
+            target = hardware_info["bootloader_upgrade_firmware"]
 
         except Exception as exc:
             msg = str(exc).lower()
 
             # CHR / platform without RouterBOARD
-            if "bootloader not supported" in msg:
+            if "hardware info not supported" in msg or "bootloader not supported" in msg:
                 skip_msg = (
                     "Bootloader upgrade not supported on this platform"
                 )
@@ -149,9 +109,9 @@ def bootloader_upgrade(client, *, return_result: bool = False):
         # -------------------------------------------------
 
         try:
-            current_after, target_after, raw_after = get_bootloader_info(
-                client
-            )
+            hardware_info_after = get_hardware_info(client)
+            current_after = hardware_info_after["bootloader_current_firmware"]
+            target_after = hardware_info_after["bootloader_upgrade_firmware"]
 
             result.metadata["current_bootloader_after"] = current_after
             result.metadata["target_bootloader_after"] = target_after
@@ -171,9 +131,14 @@ def bootloader_upgrade(client, *, return_result: bool = False):
                     "continuing with reboot"
                 )
 
-            # Optional diagnostic: inline message presence
-            if "firmware upgraded successfully" in raw_after.lower():
-                result.metadata["confirmation_message_seen"] = True
+            # Optional diagnostic: check for confirmation message in raw output
+            try:
+                raw_output = client.conn.send_command("/system routerboard print")
+                if "firmware upgraded successfully" in raw_output.lower():
+                    result.metadata["confirmation_message_seen"] = True
+            except Exception:
+                # Best-effort only; ignore if check fails
+                pass
 
         except Exception:
             # Best-effort only; do not fail the workflow here

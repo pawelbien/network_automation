@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 from network_automation.results import OperationResult
 from network_automation.platforms.mikrotik_routeros.bootloader import (
-    get_bootloader_info,
     bootloader_upgrade,
 )
 
@@ -24,6 +23,8 @@ def bootloader_print_before():
     return """
        routerboard: yes
              model: CCR2004-16G-2S+
+          revision: r2
+     serial-number: HG6099981S2
   current-firmware: 7.19.1
   upgrade-firmware: 7.20.7
     """
@@ -35,6 +36,8 @@ def bootloader_print_after():
        ;;; Firmware upgraded successfully, please reboot for changes to take effect!
        routerboard: yes
              model: CCR2004-16G-2S+
+          revision: r2
+     serial-number: HG6099981S2
   current-firmware: 7.19.1
   upgrade-firmware: 7.20.7
     """
@@ -45,6 +48,8 @@ def bootloader_print_uptodate():
     return """
        routerboard: yes
              model: CCR2004-16G-2S+
+          revision: r2
+     serial-number: HG6099981S2
   current-firmware: 7.20.7
   upgrade-firmware: 7.20.7
     """
@@ -53,48 +58,6 @@ def bootloader_print_uptodate():
 @pytest.fixture
 def chr_routerboard_output():
     return "bad command name routerboard (line 1 column 9)"
-
-
-# -------------------------------------------------------
-# get_bootloader_info
-# -------------------------------------------------------
-
-def test_get_bootloader_info_parses_versions(
-    mikrotik_client,
-    fake_conn,
-    bootloader_print_before,
-):
-    fake_conn.send_command.return_value = bootloader_print_before
-    mikrotik_client.conn = fake_conn
-
-    current, target, raw = get_bootloader_info(mikrotik_client)
-
-    assert current == "7.19.1"
-    assert target == "7.20.7"
-    assert "routerboard" in raw.lower()
-
-
-def test_get_bootloader_info_missing_fields_raises(
-    mikrotik_client,
-    fake_conn,
-):
-    fake_conn.send_command.return_value = "routerboard: yes"
-    mikrotik_client.conn = fake_conn
-
-    with pytest.raises(RuntimeError):
-        get_bootloader_info(mikrotik_client)
-
-
-def test_get_bootloader_info_chr_raises(
-    mikrotik_client,
-    fake_conn,
-    chr_routerboard_output,
-):
-    fake_conn.send_command.return_value = chr_routerboard_output
-    mikrotik_client.conn = fake_conn
-
-    with pytest.raises(RuntimeError):
-        get_bootloader_info(mikrotik_client)
 
 
 # -------------------------------------------------------
@@ -168,8 +131,9 @@ def test_bootloader_upgrade_stages_and_reboots(
     )
 
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,
-        bootloader_print_after,
+        bootloader_print_before,  # get_hardware_info before upgrade
+        bootloader_print_after,   # get_hardware_info after upgrade
+        bootloader_print_after,   # raw_output check for confirmation message
     ]
 
     fake_conn.send_command_timing.return_value = "y"
@@ -213,8 +177,9 @@ def test_bootloader_upgrade_unclear_state_still_reboots(
     )
 
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,
-        bootloader_print_before,
+        bootloader_print_before,  # get_hardware_info before upgrade
+        bootloader_print_before,  # get_hardware_info after upgrade
+        bootloader_print_before,  # raw_output check (optional)
     ]
 
     fake_conn.send_command_timing.return_value = "y"

@@ -32,6 +32,64 @@ def get_software_info(client):
 
     return {"arch": arch, "version": version}
 
+
+def get_hardware_info(client):
+    """
+    Read hardware information from RouterBOARD.
+    
+    Returns dict with:
+    - serial: serial number
+    - model: device model
+    - current_firmware: current bootloader firmware version
+    - upgrade_firmware: available bootloader firmware upgrade version
+    
+    Raises RuntimeError if RouterBOARD is not supported (e.g. CHR).
+    """
+    client.logger.info("Reading hardware info...")
+    
+    output = client.conn.send_command("/system routerboard print")
+    
+    # CHR case - RouterBOARD not supported
+    if "bad command name" in output.lower():
+        raise RuntimeError(
+            "Hardware info not supported on this platform (RouterBOARD not available)"
+        )
+    
+    serial = None
+    model = None
+    bootloader_current_firmware = None
+    bootloader_upgrade_firmware = None
+    
+    for line in output.splitlines():
+        line = line.strip()
+        
+        if line.startswith("serial-number:"):
+            serial = line.split(":", 1)[1].strip()
+        elif line.startswith("model:"):
+            model = line.split(":", 1)[1].strip()
+        elif line.startswith("current-firmware:"):
+            bootloader_current_firmware = line.split(":", 1)[1].strip()
+        elif line.startswith("upgrade-firmware:"):
+            bootloader_upgrade_firmware = line.split(":", 1)[1].strip()
+    
+    # Validate required fields
+    if not serial:
+        raise ValueError("Serial number not found in routerboard output.")
+    if not model:
+        raise ValueError("Model not found in routerboard output.")
+    if not bootloader_current_firmware:
+        raise ValueError("Current firmware not found in routerboard output.")
+    if not bootloader_upgrade_firmware:
+        raise ValueError("Upgrade firmware not found in routerboard output.")
+    
+    return {
+        "serial": serial,
+        "model": model,
+        "bootloader_current_firmware": bootloader_current_firmware,
+        "bootloader_upgrade_firmware": bootloader_upgrade_firmware,
+    }
+
+
 def normalize_version(v):
     """Normalize RouterOS version string to tuple."""
     v = v.strip().lower()
