@@ -29,7 +29,9 @@ Currently supported platform:
 
 ## Supported Operations
 
-- Device information (`info`)
+- Device information
+  - Software info (`get_info`) — mandatory, always available
+  - Hardware info (`get_hardware_info`) — optional, not available on CHR
 - Backup creation and download (`backup`)
 - Command execution (`run`)
 - Firmware upgrade (`upgrade`)
@@ -39,6 +41,46 @@ Currently supported platform:
   - optional
   - platform-dependent (not supported on CHR)
   - requires reboot to take effect
+
+---
+
+## Device Information
+
+The library separates software and hardware information collection:
+
+### Software Information (Mandatory)
+
+Software info is always collected and includes:
+- Architecture (e.g., `arm64`, `x86_64`)
+- RouterOS version
+
+```python
+client.get_info()
+# Sets: client.arch, client.current_version
+
+print(f"Arch: {client.arch}, Version: {client.current_version}")
+```
+
+### Hardware Information (Optional)
+
+Hardware info is optional and not available on all platforms (e.g., CHR):
+
+```python
+try:
+    hardware = client.get_hardware_info()
+    print(f"Serial: {hardware['serial']}")
+    print(f"Model: {hardware['model']}")
+    print(f"Bootloader: {hardware['bootloader_current_firmware']}")
+except RuntimeError:
+    # Hardware info not supported (e.g., CHR)
+    pass
+```
+
+Returns:
+- `serial`: device serial number
+- `model`: device model name
+- `bootloader_current_firmware`: current RouterBOARD firmware version
+- `bootloader_upgrade_firmware`: available RouterBOARD firmware upgrade version
 
 ---
 
@@ -54,7 +96,7 @@ client = get_client(
     password="secret",
 )
 
-client.info()
+client.get_info()
 client.backup("daily")
 ```
 

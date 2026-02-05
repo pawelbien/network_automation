@@ -143,13 +143,38 @@ Helpers assume:
 
 Examples:
 
-- `get_software_info`
+- `get_software_info` — mandatory, always available
+- `get_hardware_info` — optional capability (not available on CHR)
 - `download_firmware`
 - `upload_firmware`
 - `cleanup_old_backups`
 - `run_commands`
 
 Helpers are easy to unit test in isolation.
+
+**Information Collection Model:**
+
+The library separates information into categories:
+
+- **Software info** (`get_software_info`) — mandatory, always collected explicitly
+  - Architecture and RouterOS version
+  - Required for firmware upgrades and device identification
+  - Always available on all platforms
+
+- **Hardware info** (`get_hardware_info`) — optional capability
+  - Serial number, model, bootloader firmware versions
+  - Not available on all platforms (e.g., CHR)
+  - Raises `RuntimeError` when not supported
+  - Workflows decide how to handle missing capabilities
+
+- **License info** (future) — optional capability
+  - License level, expiration, features
+  - Platform-dependent availability
+
+This separation allows:
+- Workflows to depend only on required information
+- Graceful handling of missing capabilities
+- Clear distinction between mandatory and optional data
 
 ---
 
@@ -373,6 +398,35 @@ Tests describe contracts, not implementations.
 4. Add focused unit tests
 5. Document any lifecycle or reboot implications
 
+### Adding a new information category
+
+To add a new information category (e.g., license info):
+
+1. Create a helper function (e.g., `get_license_info`)
+2. Follow the capability model:
+   - If mandatory: always raise exceptions on failure
+   - If optional: raise `RuntimeError` with descriptive message when not supported
+3. Return a dict with consistent field names
+4. Add unit tests covering:
+   - Successful parsing
+   - Missing required fields (ValueError)
+   - Unsupported platform (RuntimeError)
+5. Update workflows that need this information to handle exceptions appropriately
+
+Example:
+
+```python
+def get_license_info(client):
+    """Read license information (optional capability)."""
+    output = client.conn.send_command("/system license print")
+    
+    if "bad command name" in output.lower():
+        raise RuntimeError("License info not supported on this platform")
+    
+    # Parse and validate...
+    return {"level": level, "expiration": expiration}
+```
+
 ### Adding a new platform
 
 1. Create a platform module
@@ -397,5 +451,8 @@ The following rules must not be violated:
 - reboot-causing operations must be explicit
 - exceptions control flow
 - operations may explicitly skip unsupported platforms (reported via OperationResult)
+- **information categories are separated** — software info is mandatory, hardware/license info are optional capabilities
+- **helpers collect one category only** — each helper function collects one information category
+- **workflows decide what to collect** — workflows choose which helpers to call and how to handle missing capabilities
 
 These invariants are intentionally strict.
