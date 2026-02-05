@@ -9,7 +9,7 @@ import re
 from network_automation.results import OperationResult
 
 
-def get_info(client):
+def get_software_info(client):
     """Read system architecture and version."""
     client.logger.info("Reading system info...")
 
@@ -64,7 +64,7 @@ def read_info(client, *, return_result: bool = False):
 
     client.connect()
     try:
-        info = get_info(client)
+        info = get_software_info(client)
 
         # Persist on client (existing behavior pattern)
         client.arch = info["arch"]

@@ -143,7 +143,7 @@ Helpers assume:
 
 Examples:
 
-- `get_info`
+- `get_software_info`
 - `download_firmware`
 - `upload_firmware`
 - `cleanup_old_backups`

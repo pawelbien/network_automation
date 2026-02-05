@@ -10,7 +10,7 @@ from pathlib import Path
 
 from network_automation.results import OperationResult
 from network_automation.platforms.mikrotik_routeros.info import (
-    get_info,
+    get_software_info,
     normalize_version,
     is_newer_version,
 )
@@ -207,7 +207,7 @@ def upgrade(client, *, return_result: bool = False):
 
     client.connect()
     try:
-        info = get_info(client)
+        info = get_software_info(client)
         client.arch = info["arch"]
         client.current_version = info["version"]
 
@@ -243,7 +243,7 @@ def upgrade(client, *, return_result: bool = False):
         client.conn = client.wait_for_reconnect()
 
         # ---- verify version ----
-        info = get_info(client)
+        info = get_software_info(client)
         final_version = info["version"]
         client.current_version = final_version
 
