@@ -89,6 +89,27 @@ def get_hardware_info(client):
         "bootloader_upgrade_firmware": bootloader_upgrade_firmware,
     }
 
+def get_system_identity(client):
+    """
+    Read RouterOS system identity (device name).
+    
+    Returns dict with:
+    - name: device name
+    
+    Raises ValueError if name not found in output.
+    """
+    client.logger.info("Reading system identity...")
+    
+    output = client.conn.send_command("/system identity print")
+
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith("name:"):
+            return {
+                "name": line.split(":", 1)[1].strip()
+            }
+
+    raise ValueError("System identity name not found")
 
 def normalize_version(v):
     """Normalize RouterOS version string to tuple."""
@@ -108,7 +129,7 @@ def is_newer_version(current_version, new_version):
 
 def read_info(client, *, return_result: bool = False):
     """
-    Read device architecture, version, and hardware information as a workflow operation.
+    Read device architecture, version, hardware information, and system identity as a workflow operation.
     Raises exceptions on failure.
     For external call.
     
@@ -117,6 +138,7 @@ def read_info(client, *, return_result: bool = False):
         If return_result=False: dict with keys:
             - arch: architecture name
             - version: RouterOS version
+            - name: device name (system identity)
             - serial: serial number (if available)
             - model: device model (if available)
             - bootloader_current_firmware: current bootloader firmware (if available)
@@ -141,6 +163,11 @@ def read_info(client, *, return_result: bool = False):
         # Start with software info
         return_dict = info.copy()
         result.metadata.update(info)
+        
+        # Get system identity (device name)
+        identity_info = get_system_identity(client)
+        return_dict.update(identity_info)
+        result.metadata.update(identity_info)
         
         # Try to get hardware info (may not be available on CHR)
         try:

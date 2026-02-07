@@ -8,6 +8,7 @@ from network_automation.platforms.mikrotik_routeros.info import (
     is_newer_version,
     get_software_info,
     get_hardware_info,
+    get_system_identity,
     read_info,
 )
 from network_automation.platforms.mikrotik_routeros.upgrade import download_firmware
@@ -171,6 +172,25 @@ def test_get_hardware_info_missing_upgrade_firmware(mikrotik_client, fake_conn):
         get_hardware_info(mikrotik_client)
 
 
+# ---------- get_system_identity helper ----------
+
+def test_get_system_identity_parsing(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = "name: RouterOS-Device"
+    mikrotik_client.conn = fake_conn
+
+    info = get_system_identity(mikrotik_client)
+
+    assert info["name"] == "RouterOS-Device"
+
+
+def test_get_system_identity_missing_name(mikrotik_client, fake_conn):
+    fake_conn.send_command.return_value = "some other output"
+    mikrotik_client.conn = fake_conn
+
+    with pytest.raises(ValueError, match="System identity name not found"):
+        get_system_identity(mikrotik_client)
+
+
 # ---------- read_info workflow ----------
 
 def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
@@ -186,6 +206,7 @@ def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
         version: 7.13.5 (stable)
         architecture-name: arm64
         """,
+        "name: RouterOS-Device",
         """
        routerboard: yes
              model: CCR2004-16G-2S+
@@ -201,6 +222,7 @@ def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
     assert isinstance(info, dict)
     assert info["arch"] == "arm64"
     assert info["version"] == "7.13.5 (stable)"
+    assert info["name"] == "RouterOS-Device"
     assert info["serial"] == "HG6099981S2"
     assert info["model"] == "CCR2004-16G-2S+"
     assert info["bootloader_current_firmware"] == "7.19.1"
@@ -224,6 +246,7 @@ def test_read_info_chr_no_hardware(monkeypatch, mikrotik_client, fake_conn):
         version: 7.13.5 (stable)
         architecture-name: arm64
         """,
+        "name: RouterOS-Device",
         "bad command name routerboard (line 1 column 9)",
     ]
     
@@ -232,6 +255,7 @@ def test_read_info_chr_no_hardware(monkeypatch, mikrotik_client, fake_conn):
     assert isinstance(info, dict)
     assert info["arch"] == "arm64"
     assert info["version"] == "7.13.5 (stable)"
+    assert info["name"] == "RouterOS-Device"
     assert "serial" not in info
     assert "model" not in info
     assert "bootloader_current_firmware" not in info
@@ -251,6 +275,7 @@ def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
         version: 7.13.5 (stable)
         architecture-name: arm64
         """,
+        "name: RouterOS-Device",
         """
        routerboard: yes
              model: CCR2004-16G-2S+
@@ -269,6 +294,7 @@ def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
     assert result.operation == "info"
     assert result.metadata["arch"] == "arm64"
     assert result.metadata["version"] == "7.13.5 (stable)"
+    assert result.metadata["name"] == "RouterOS-Device"
     assert result.metadata["serial"] == "HG6099981S2"
     assert result.metadata["model"] == "CCR2004-16G-2S+"
 
