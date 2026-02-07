@@ -35,7 +35,6 @@ class MikrotikRouterOS(BaseClient):
         connect_delay=2,
         reconnect_timeout=300,
         reconnect_delay=10,
-        log_file=None,  # deprecated, kept for backward compatibility
         *,
         context: ExecutionContext | None = None,
     ):
@@ -45,13 +44,6 @@ class MikrotikRouterOS(BaseClient):
             connect_retries=connect_retries,
             connect_delay=connect_delay,
         )
-
-        # Legacy parameter kept for backward compatibility
-        if log_file:
-            self.logger.debug(
-                "Parameter 'log_file' is deprecated and ignored. "
-                "Logging must be configured by the caller."
-            )
 
         # Netmiko connection parameters (platform-specific)
         self.device = {
