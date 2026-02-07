@@ -8,6 +8,7 @@ from network_automation.platforms.mikrotik_routeros.info import (
     is_newer_version,
     get_software_info,
     get_hardware_info,
+    read_info,
 )
 from network_automation.platforms.mikrotik_routeros.upgrade import download_firmware
 
@@ -168,6 +169,108 @@ def test_get_hardware_info_missing_upgrade_firmware(mikrotik_client, fake_conn):
 
     with pytest.raises(ValueError, match="Upgrade firmware not found"):
         get_hardware_info(mikrotik_client)
+
+
+# ---------- read_info workflow ----------
+
+def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
+    """Test read_info returns dict with software and hardware info."""
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
+    
+    mikrotik_client.conn = fake_conn
+    
+    fake_conn.send_command.side_effect = [
+        """
+        uptime: 1d
+        version: 7.13.5 (stable)
+        architecture-name: arm64
+        """,
+        """
+       routerboard: yes
+             model: CCR2004-16G-2S+
+          revision: r2
+     serial-number: HG6099981S2
+  current-firmware: 7.19.1
+  upgrade-firmware: 7.20.7
+        """,
+    ]
+    
+    info = read_info(mikrotik_client)
+    
+    assert isinstance(info, dict)
+    assert info["arch"] == "arm64"
+    assert info["version"] == "7.13.5 (stable)"
+    assert info["serial"] == "HG6099981S2"
+    assert info["model"] == "CCR2004-16G-2S+"
+    assert info["bootloader_current_firmware"] == "7.19.1"
+    assert info["bootloader_upgrade_firmware"] == "7.20.7"
+    
+    # Check client state
+    assert mikrotik_client.arch == "arm64"
+    assert mikrotik_client.current_version == "7.13.5 (stable)"
+
+
+def test_read_info_chr_no_hardware(monkeypatch, mikrotik_client, fake_conn):
+    """Test read_info returns dict with only software info on CHR."""
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
+    
+    mikrotik_client.conn = fake_conn
+    
+    fake_conn.send_command.side_effect = [
+        """
+        uptime: 1d
+        version: 7.13.5 (stable)
+        architecture-name: arm64
+        """,
+        "bad command name routerboard (line 1 column 9)",
+    ]
+    
+    info = read_info(mikrotik_client)
+    
+    assert isinstance(info, dict)
+    assert info["arch"] == "arm64"
+    assert info["version"] == "7.13.5 (stable)"
+    assert "serial" not in info
+    assert "model" not in info
+    assert "bootloader_current_firmware" not in info
+    assert "bootloader_upgrade_firmware" not in info
+
+
+def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
+    """Test read_info returns OperationResult when return_result=True."""
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
+    
+    mikrotik_client.conn = fake_conn
+    
+    fake_conn.send_command.side_effect = [
+        """
+        uptime: 1d
+        version: 7.13.5 (stable)
+        architecture-name: arm64
+        """,
+        """
+       routerboard: yes
+             model: CCR2004-16G-2S+
+     serial-number: HG6099981S2
+  current-firmware: 7.19.1
+  upgrade-firmware: 7.20.7
+        """,
+    ]
+    
+    from network_automation.results import OperationResult
+    
+    result = read_info(mikrotik_client, return_result=True)
+    
+    assert isinstance(result, OperationResult)
+    assert result.success is True
+    assert result.operation == "info"
+    assert result.metadata["arch"] == "arm64"
+    assert result.metadata["version"] == "7.13.5 (stable)"
+    assert result.metadata["serial"] == "HG6099981S2"
+    assert result.metadata["model"] == "CCR2004-16G-2S+"
 
 
 # ---------- download_firmware ----------

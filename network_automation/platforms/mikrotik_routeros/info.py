@@ -108,9 +108,19 @@ def is_newer_version(current_version, new_version):
 
 def read_info(client, *, return_result: bool = False):
     """
-    Read device architecture and version as a workflow operation.
+    Read device architecture, version, and hardware information as a workflow operation.
     Raises exceptions on failure.
     For external call.
+    
+    Returns:
+        If return_result=True: OperationResult with metadata
+        If return_result=False: dict with keys:
+            - arch: architecture name
+            - version: RouterOS version
+            - serial: serial number (if available)
+            - model: device model (if available)
+            - bootloader_current_firmware: current bootloader firmware (if available)
+            - bootloader_upgrade_firmware: upgrade bootloader firmware (if available)
     """
 
     result = OperationResult(
@@ -128,11 +138,22 @@ def read_info(client, *, return_result: bool = False):
         client.arch = info["arch"]
         client.current_version = info["version"]
 
-        result.metadata["architecture"] = info["arch"]
-        result.metadata["version"] = info["version"]
+        # Start with software info
+        return_dict = info.copy()
+        result.metadata.update(info)
+        
+        # Try to get hardware info (may not be available on CHR)
+        try:
+            hardware_info = get_hardware_info(client)
+            return_dict.update(hardware_info)
+            result.metadata.update(hardware_info)
+        except RuntimeError:
+            # Hardware info not available (e.g., CHR platform)
+            result.metadata["hardware_info_available"] = False
+        
         result.message = "System information read successfully"
 
-        return result if return_result else (info["arch"], info["version"])
+        return result if return_result else return_dict
 
     except Exception as exc:
         result.success = False
