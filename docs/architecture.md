@@ -29,10 +29,11 @@ The value of `device_type` must match:
 - Nautobot: `device.platform.network_driver`
 - Netmiko: `device_type`
 
-Example:
+Examples (`device_type` matches Netmiko’s `device_type` string):
 
 ```
 mikrotik_routeros
+huawei
 ```
 
 There is a **1:1 mapping** between:
@@ -230,6 +231,12 @@ client.backup("daily", return_result=True)
 client.upgrade(return_result=True)
 ```
 
+Huawei VRP (commands only):
+
+```python
+client.run(["display version"], return_result=True)
+```
+
 Clients may be stateful (e.g. cached device info),
 but do not own lifecycle decisions.
 
@@ -285,6 +292,7 @@ Bootloader upgrade is exposed as an explicit workflow:
 
 ```python
 client.bootloader_upgrade(return_result=True)
+```
 
 ---
 

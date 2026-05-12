@@ -10,9 +10,10 @@ The library is designed to work consistently:
 - from **CLI tools**
 - in **pytest-based test suites**
 
-Currently supported platform:
+Currently supported platforms:
 
-- MikroTik RouterOS
+- **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
+- **Huawei VRP** — remote command execution (`run`) via Netmiko; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 
 ---
 
@@ -29,6 +30,10 @@ Currently supported platform:
 
 ## Supported Operations
 
+Not every operation is available on every platform.
+
+### MikroTik RouterOS
+
 - Device information
   - Software info (`get_info`) — mandatory, always available
   - Hardware info (`get_hardware_info`) — optional, not available on CHR
@@ -42,9 +47,16 @@ Currently supported platform:
   - platform-dependent (not supported on CHR)
   - requires reboot to take effect
 
+### Huawei VRP
+
+- Command execution (`run`)
+
 ---
 
+
 ## Device Information
+
+The following applies to **MikroTik RouterOS**. Huawei VRP does not implement `get_info` / `get_hardware_info` in this library yet.
 
 The library separates software and hardware information collection:
 
@@ -100,9 +112,26 @@ client.get_info()
 client.backup("daily")
 ```
 
+### Huawei VRP (commands only)
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="huawei",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+client.run(["display version"], return_result=True)
+```
+
 ---
 
 ## Firmware Upgrade
+
+Firmware upgrade is implemented for **MikroTik RouterOS** only.
 
 Firmware upgrade requires **explicit configuration** of the delivery method.
 
