@@ -114,6 +114,8 @@ client.backup("daily")
 
 ### Huawei VRP (commands only)
 
+Commands are standard VRP CLI lines (same syntax you would type on the device).
+
 ```python
 from network_automation.factory import get_client
 
@@ -124,8 +126,15 @@ client = get_client(
     password="secret",
 )
 
-client.run(["display version"], return_result=True)
+result = client.run(
+    ["display version", "display ip interface brief"],
+    return_result=True,
+)
+for entry in result.metadata["output"]:
+    print(entry["command"], entry["output"])
 ```
+
+A CLI-style script (SSH key, multiple commands, formatted output) lives at `examples/huawei_vrp/run_command.py`, analogous to `examples/mikrotik_routeros/run_command.py`.
 
 ---
 
@@ -282,6 +291,7 @@ Tests are designed to run without real network devices.
 
 - `docs/architecture.md` — architectural invariants and patterns
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples
+- `examples/huawei_vrp/` — Huawei VRP usage examples (remote command execution)
 
 ---
 
