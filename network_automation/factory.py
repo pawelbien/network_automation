@@ -1,9 +1,11 @@
 # network_automation/factory.py
 
 from network_automation.context import ExecutionContext
+from network_automation.platforms.huawei_vrp.client import HuaweiVRP
 from network_automation.platforms.mikrotik_routeros.client import MikrotikRouterOS
 
 _PLATFORM_REGISTRY = {
+    "huawei": HuaweiVRP,
     "mikrotik_routeros": MikrotikRouterOS,
     # "cisco_ios": CiscoIOS,
     # "juniper_junos": JuniperJunos,
