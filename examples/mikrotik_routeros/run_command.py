@@ -1,4 +1,4 @@
-# network_automation/examples/run_command.py
+# network_automation/examples/mikrotik_routeros/run_command.py
 
 """
 Example: run arbitrary commands on Mikrotik RouterOS (CLI style).
@@ -20,7 +20,7 @@ def main():
     # --- required arguments: one or more commands ---
     if len(sys.argv) < 2:
         print("Usage: python run_command.py <command> [<command> ...]")
-        print('Example:')
+        print("Example:")
         print('  python run_command.py "/system resource print"')
         print('  python run_command.py "/ip address print" "/interface print"')
         sys.exit(1)

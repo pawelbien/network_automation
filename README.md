@@ -281,7 +281,7 @@ Tests are designed to run without real network devices.
 ## Documentation
 
 - `docs/architecture.md` — architectural invariants and patterns
-- `docs/examples/` — usage examples
+- `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples
 
 ---
 
