@@ -2,6 +2,7 @@
 
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
+from network_automation.platforms.huawei_vrp.info import read_info
 from network_automation.platforms.huawei_vrp.run import run as run_helper
 
 
@@ -45,6 +46,9 @@ class HuaweiVRP(BaseClient):
 
         self.host = host
         self.username = username
+
+    def get_info(self, *, return_result: bool = False):
+        return read_info(self, return_result=return_result)
 
     def run(self, commands, *, return_result: bool = False):
         return run_helper(

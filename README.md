@@ -13,7 +13,7 @@ The library is designed to work consistently:
 Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
-- **Huawei VRP** — remote command execution (`run`) via Netmiko; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **Huawei VRP** — device information (`get_info`) and remote command execution (`run`) via Netmiko; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 
 ---
 
@@ -49,6 +49,7 @@ Not every operation is available on every platform.
 
 ### Huawei VRP
 
+- Device information (`get_info`) — unified member model, supports single devices and stacks
 - Command execution (`run`)
 
 ---
@@ -56,15 +57,11 @@ Not every operation is available on every platform.
 
 ## Device Information
 
-The following applies to **MikroTik RouterOS**. Huawei VRP does not implement `get_info` / `get_hardware_info` in this library yet.
+### MikroTik RouterOS
 
 The library separates software and hardware information collection:
 
-### Software Information (Mandatory)
-
-Software info is always collected and includes:
-- Architecture (e.g., `arm64`, `x86_64`)
-- RouterOS version
+**Software Information (Mandatory)**
 
 ```python
 client.get_info()
@@ -73,9 +70,9 @@ client.get_info()
 print(f"Arch: {client.arch}, Version: {client.current_version}")
 ```
 
-### Hardware Information (Optional)
+**Hardware Information (Optional)**
 
-Hardware info is optional and not available on all platforms (e.g., CHR):
+Hardware info is not available on all platforms (e.g., CHR):
 
 ```python
 try:
@@ -93,6 +90,63 @@ Returns:
 - `model`: device model name
 - `bootloader_current_firmware`: current RouterBOARD firmware version
 - `bootloader_upgrade_firmware`: available RouterBOARD firmware upgrade version
+
+### Huawei VRP
+
+`get_info` collects data from `display version`, `display esn`, and `display startup`,
+and correlates them into a unified **member list**. Each member represents one physical
+device — either a standalone router or a slot in a stack.
+
+```python
+result = client.get_info()
+
+for member in result["members"]:
+    print(f"[{member['id']}] {member['role']}: {member['model']} "
+          f"ESN={member['esn']} SW={member['software_version']}")
+```
+
+Each member dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Slot number (`0` for standalone MPU, `1`/`2`/… for stack members) |
+| `role` | `"master"` or `"standby"` |
+| `model` | Device model (e.g. `AR651`, `S6730-H24X6C`) |
+| `esn` | Electronic Serial Number |
+| `vrp_version` | VRP software version (e.g. `5.170`) |
+| `software_version` | Full version string (e.g. `V300R024C00SPC100`) |
+| `startup_image` | Currently active startup image path |
+| `next_startup_image` | Image loaded on next boot |
+| `startup_patch` | Active patch package path, or `None` |
+| `next_startup_patch` | Patch loaded on next boot, or `None` |
+
+Example output for a 2-member stack:
+
+```python
+{
+    "members": [
+        {
+            "id": 1,
+            "role": "master",
+            "model": "S6730-H24X6C",
+            "esn": "6R23C0039583",
+            "vrp_version": "5.170",
+            "software_version": "V200R024C00SPC500",
+            "startup_image": "flash:/s6730_v200r024c00spc500.cc",
+            "next_startup_image": "flash:/s6730_v200r024c00spc500.cc",
+            "startup_patch": "flash:/s6730-h_v200r024sph121.pat",
+            "next_startup_patch": "flash:/s6730-h_v200r024sph121.pat",
+        },
+        {
+            "id": 2,
+            "role": "standby",
+            "model": "S6730-H24X6C",
+            "esn": "6R23C0039593",
+            ...
+        },
+    ]
+}
+```
 
 ---
 
@@ -112,9 +166,7 @@ client.get_info()
 client.backup("daily")
 ```
 
-### Huawei VRP (commands only)
-
-Commands are standard VRP CLI lines (same syntax you would type on the device).
+### Huawei VRP
 
 ```python
 from network_automation.factory import get_client
@@ -126,6 +178,12 @@ client = get_client(
     password="secret",
 )
 
+# Device information
+info = client.get_info()
+for member in info["members"]:
+    print(f"[{member['id']}] {member['role']}: {member['model']} ESN={member['esn']}")
+
+# Command execution
 result = client.run(
     ["display version", "display ip interface brief"],
     return_result=True,
@@ -291,7 +349,7 @@ Tests are designed to run without real network devices.
 
 - `docs/architecture.md` — architectural invariants and patterns
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples
-- `examples/huawei_vrp/` — Huawei VRP usage examples (remote command execution)
+- `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution)
 
 ---
 

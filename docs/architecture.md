@@ -155,27 +155,44 @@ Helpers are easy to unit test in isolation.
 
 **Information Collection Model:**
 
-The library separates information into categories:
+The model is platform-specific. Platforms choose the model that fits their
+data structure and correlation requirements.
 
-- **Software info** (`get_software_info`) — mandatory, always collected explicitly
+**MikroTik RouterOS — split model**
+
+Information is separated into independent categories collected by dedicated helpers:
+
+- **Software info** (`get_software_info`) — mandatory
   - Architecture and RouterOS version
   - Required for firmware upgrades and device identification
-  - Always available on all platforms
 
 - **Hardware info** (`get_hardware_info`) — optional capability
   - Serial number, model, bootloader firmware versions
   - Not available on all platforms (e.g., CHR)
   - Raises `RuntimeError` when not supported
-  - Workflows decide how to handle missing capabilities
 
 - **License info** (future) — optional capability
   - License level, expiration, features
-  - Platform-dependent availability
 
-This separation allows:
-- Workflows to depend only on required information
-- Graceful handling of missing capabilities
-- Clear distinction between mandatory and optional data
+The split model works because each category comes from an independent command
+and can be collected and used independently.
+
+**Huawei VRP — unified member model**
+
+Information is collected via a single `get_info` helper that runs three commands
+(`display version`, `display esn`, `display startup`) and correlates the results
+by slot ID and role. The output is a `members` list — one entry per physical device
+(standalone router or stack slot).
+
+This model is used because:
+- Slot IDs must be correlated across all three commands
+- Stacked devices are a first-class concept (master + standby slots)
+- Splitting into independent helpers would require callers to perform the correlation
+
+```python
+info = client.get_info()
+# {"members": [{"id": 1, "role": "master", "model": "...", "esn": "...", ...}]}
+```
 
 ---
 
@@ -231,10 +248,11 @@ client.backup("daily", return_result=True)
 client.upgrade(return_result=True)
 ```
 
-Huawei VRP (commands only):
+Huawei VRP:
 
 ```python
-client.run(["display version"], return_result=True)
+client.get_info()                                    # unified member model
+client.run(["display version"], return_result=True)  # command execution
 ```
 
 Clients may be stateful (e.g. cached device info),
@@ -459,8 +477,7 @@ The following rules must not be violated:
 - reboot-causing operations must be explicit
 - exceptions control flow
 - operations may explicitly skip unsupported platforms (reported via OperationResult)
-- **information categories are separated** — software info is mandatory, hardware/license info are optional capabilities
-- **helpers collect one category only** — each helper function collects one information category
+- **information model is platform-specific** — MikroTik uses a split model (one helper per category); Huawei uses a unified member model when cross-command correlation is required
 - **workflows decide what to collect** — workflows choose which helpers to call and how to handle missing capabilities
 
 These invariants are intentionally strict.
