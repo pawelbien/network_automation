@@ -21,6 +21,7 @@ class HuaweiVRP(BaseClient):
         port=22,
         connect_retries=2,
         connect_delay=2,
+        disabled_algorithms: dict | None = None,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -39,6 +40,7 @@ class HuaweiVRP(BaseClient):
             "passphrase": passphrase,
             "use_keys": use_keys,
             "port": port,
+            "disabled_algorithms": disabled_algorithms,
         }
 
         self.host = host
