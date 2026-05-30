@@ -35,6 +35,9 @@ def main():
     if not passphrase:
         raise RuntimeError("Environment variable PASSPHRASE is not set.")
 
+    # Huawei VRP may require disabling rsa-sha2-512 and rsa-sha2-256 
+    # in Paramiko/Netmiko when using RSA key authentication, 
+    # as some VRP SSH implementations only support ssh-rsa signatures.
     params = {
         "device_type": "huawei",
         "host": "10.0.0.100",
@@ -42,6 +45,9 @@ def main():
         "key_file": "~/.ssh/id_rsa_test",
         "passphrase": passphrase,
         "use_keys": True,
+        "disabled_algorithms": {
+            "pubkeys": ["rsa-sha2-512", "rsa-sha2-256"]
+       },        
     }
 
     client = get_client(**params)
