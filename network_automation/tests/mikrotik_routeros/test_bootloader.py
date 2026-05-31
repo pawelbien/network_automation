@@ -131,8 +131,8 @@ def test_bootloader_upgrade_stages_and_reboots(
     )
 
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,  # get_hardware_info before upgrade
-        bootloader_print_after,   # get_hardware_info after upgrade
+        bootloader_print_before,  # get_info before upgrade
+        bootloader_print_after,   # get_info after upgrade
         bootloader_print_after,   # raw_output check for confirmation message
     ]
 
@@ -177,8 +177,8 @@ def test_bootloader_upgrade_unclear_state_still_reboots(
     )
 
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,  # get_hardware_info before upgrade
-        bootloader_print_before,  # get_hardware_info after upgrade
+        bootloader_print_before,  # get_info before upgrade
+        bootloader_print_before,  # get_info after upgrade
         bootloader_print_before,  # raw_output check (optional)
     ]
 

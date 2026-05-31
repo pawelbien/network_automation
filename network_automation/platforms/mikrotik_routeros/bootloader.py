@@ -8,7 +8,7 @@ import time
 from network_automation.results import OperationResult
 from network_automation.platforms.mikrotik_routeros.info import (
     normalize_version,
-    get_hardware_info,
+    get_info,
 )
 
 
@@ -57,27 +57,18 @@ def bootloader_upgrade(client, *, return_result: bool = False):
         # Initial state
         # -------------------------------------------------
 
-        try:
-            hardware_info = get_hardware_info(client)
-            current = hardware_info["bootloader_current_firmware"]
-            target = hardware_info["bootloader_upgrade_firmware"]
+        info = get_info(client)
+        unit = info["units"][0]
+        current = unit["bootloader_current_firmware"]
+        target = unit["bootloader_upgrade_firmware"]
 
-        except Exception as exc:
-            msg = str(exc).lower()
-
-            # CHR / platform without RouterBOARD
-            if "hardware info not supported" in msg or "bootloader not supported" in msg:
-                skip_msg = (
-                    "Bootloader upgrade not supported on this platform"
-                )
-                client.logger.info(skip_msg)
-                result.message = skip_msg
-                result.metadata["skipped"] = True
-                result.metadata["reason"] = "bootloader not supported"
-                return result if return_result else None
-
-            # any other error is real
-            raise
+        if current is None:
+            skip_msg = "Bootloader upgrade not supported on this platform"
+            client.logger.info(skip_msg)
+            result.message = skip_msg
+            result.metadata["skipped"] = True
+            result.metadata["reason"] = "bootloader not supported"
+            return result if return_result else None
 
         result.metadata["current_bootloader"] = current
         result.metadata["target_bootloader"] = target
@@ -109,9 +100,10 @@ def bootloader_upgrade(client, *, return_result: bool = False):
         # -------------------------------------------------
 
         try:
-            hardware_info_after = get_hardware_info(client)
-            current_after = hardware_info_after["bootloader_current_firmware"]
-            target_after = hardware_info_after["bootloader_upgrade_firmware"]
+            info_after = get_info(client)
+            unit_after = info_after["units"][0]
+            current_after = unit_after["bootloader_current_firmware"]
+            target_after = unit_after["bootloader_upgrade_firmware"]
 
             result.metadata["current_bootloader_after"] = current_after
             result.metadata["target_bootloader_after"] = target_after
