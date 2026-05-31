@@ -28,6 +28,12 @@ class HuaweiVRP(BaseClient):
         *,
         context: ExecutionContext | None = None,
     ):
+        """
+        disabled_algorithms — passed directly to Paramiko; use to re-enable
+                              legacy algorithms on older Huawei devices that
+                              don't support modern SSH key exchange or ciphers.
+                              Example: {"kex": ["diffie-hellman-group14-sha1"]}.
+        """
         super().__init__(
             context=context,
             connect_retries=connect_retries,
@@ -50,9 +56,11 @@ class HuaweiVRP(BaseClient):
         self.username = username
 
     def get_info(self, *, return_result: bool = False):
+        """Read device info (version, ESN, startup config) for all stack units."""
         return read_info(self, return_result=return_result)
 
     def run(self, commands, *, return_result: bool = False):
+        """Execute one command (str) or a list of commands on the device."""
         return run_helper(
             self,
             commands,
@@ -66,6 +74,7 @@ class HuaweiVRP(BaseClient):
         local_dir: str,
         return_result: bool = False,
     ):
+        """Download files from device via SFTP."""
         return run_download(
             self,
             files=files,
@@ -80,6 +89,7 @@ class HuaweiVRP(BaseClient):
         remote_dir: str = "/",
         return_result: bool = False,
     ):
+        """Upload local files to device via SFTP."""
         return run_upload(
             self,
             files=files,

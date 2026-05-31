@@ -12,6 +12,25 @@ _PLATFORM_REGISTRY = {
 }
 
 def get_client(**params):
+    """
+    Create and return a platform client.
+
+    Required parameter:
+      device_type  — platform identifier: "mikrotik_routeros" or "huawei".
+
+    Execution context (optional, mutually exclusive):
+      context      — pre-built ExecutionContext instance; if provided, the
+                     logger/device_name/job_id/metadata/dry_run params below
+                     are ignored.
+      logger       — custom logger; defaults to the standard Python logger.
+      device_name  — label attached to log messages.
+      job_id       — job identifier attached to log messages.
+      metadata     — arbitrary dict stored on the context.
+      dry_run      — when True the client skips destructive operations.
+
+    All remaining keyword arguments are forwarded to the platform client
+    constructor (host, username, password, …).
+    """
     # -------------------------------------------------
     # ExecutionContext handling
     # -------------------------------------------------

@@ -38,6 +38,20 @@ class MikrotikRouterOS(BaseClient):
         *,
         context: ExecutionContext | None = None,
     ):
+        """
+        firmware_version   — target version string used by upgrade(); e.g. "7.14".
+        firmware_delivery  — how firmware reaches the device: "download" (device
+                             fetches from repo_url) or "upload" (host pushes from
+                             repo_path).
+        repo_url           — base URL for "download" delivery; version and filename
+                             are appended automatically.
+        repo_path          — local directory root for "upload" delivery; expected
+                             layout: <repo_path>/<version>/<filename>.npk.
+        reconnect_timeout  — seconds to wait for SSH after reboot before raising
+                             TimeoutError (default 300).
+        reconnect_delay    — polling interval in seconds during reconnect wait
+                             (default 10).
+        """
         # Initialize shared BaseClient state (context, logger, retry config)
         super().__init__(
             context=context,
@@ -79,6 +93,7 @@ class MikrotikRouterOS(BaseClient):
     # -------------------------------------------------------
 
     def get_info(self, *, return_result: bool = False):
+        """Read device info and populate arch/current_version on the client."""
         return read_info(self, return_result=return_result)
 
     # -------------------------------------------------------
@@ -92,6 +107,7 @@ class MikrotikRouterOS(BaseClient):
         return_result: bool = False,
         download_dir: str = ".",
     ):
+        """Create a .backup file on the device and download it to download_dir."""
         return run_backup(
             self,
             name,
@@ -213,6 +229,7 @@ class MikrotikRouterOS(BaseClient):
     # -------------------------------------------------------
 
     def upgrade(self, *, return_result: bool = False):
+        """Run full firmware upgrade: provide firmware, reboot, verify version."""
         return upgrade_helper(self, return_result=return_result)
 
     # -------------------------------------------------------
@@ -231,6 +248,7 @@ class MikrotikRouterOS(BaseClient):
     # -------------------------------------------------------
 
     def run(self, commands, *, return_result: bool = False):
+        """Execute one command (str) or a list of commands on the device."""
         return run_helper(
             self,
             commands,
