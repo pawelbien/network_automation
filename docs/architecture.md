@@ -181,7 +181,7 @@ and can be collected and used independently.
 
 Information is collected via a single `get_info` helper that runs three commands
 (`display version`, `display esn`, `display startup`) and correlates the results
-by slot ID and role. The output is a `members` list — one entry per physical device
+by slot ID and role. The output is a `units` list — one entry per physical device
 (standalone router or stack slot).
 
 This model is used because:
@@ -191,7 +191,7 @@ This model is used because:
 
 ```python
 info = client.get_info()
-# {"members": [{"id": 1, "role": "master", "model": "...", "esn": "...", ...}]}
+# {"units": [{"id": 1, "role": "master", "model": "...", "esn": "...", ...}]}
 ```
 
 ---

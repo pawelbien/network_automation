@@ -13,13 +13,13 @@ def _parse_version(output):
     """
     Parse 'display version' output.
 
-    Returns list of partial member dicts with keys:
+    Returns list of partial unit dicts with keys:
     id, role, model, vrp_version, software_version.
     """
     vrp_version = None
     software_version = None
     model = None
-    members = []
+    units = []
 
     for line in output.splitlines():
         line = line.strip()
@@ -48,7 +48,7 @@ def _parse_version(output):
         # ES6D2S30S003 2(Standby)  : uptime is ...
         m = re.search(r'\S+\s+(\d+)\s*\((Master|Standby)\)\s*:', line)
         if m:
-            members.append({
+            units.append({
                 "id": int(m.group(1)),
                 "role": m.group(2).lower(),
             })
@@ -59,15 +59,15 @@ def _parse_version(output):
         raise ValueError("Software version not found in 'display version' output.")
     if not model:
         raise ValueError("Device model not found in 'display version' output.")
-    if not members:
-        raise ValueError("No members (Master/Standby slots) found in 'display version' output.")
+    if not units:
+        raise ValueError("No units (Master/Standby slots) found in 'display version' output.")
 
-    for member in members:
-        member["model"] = model
-        member["vrp_version"] = vrp_version
-        member["software_version"] = software_version
+    for unit in units:
+        unit["model"] = model
+        unit["vrp_version"] = vrp_version
+        unit["software_version"] = software_version
 
-    return members
+    return units
 
 
 def _parse_esn(output):
@@ -161,13 +161,13 @@ def _parse_startup(output):
 
 def get_info(client):
     """
-    Collect device information from three VRP commands and return a unified member list.
+    Collect device information from three VRP commands and return a unified unit list.
 
     Runs: display version, display esn, display startup.
 
     Returns dict:
     {
-        "members": [
+        "units": [
             {
                 "id":               int,   # slot number (0 for single-device MPU)
                 "role":             str,   # "master" or "standby"
@@ -190,7 +190,7 @@ def get_info(client):
     esn_output = client.conn.send_command("display esn")
     startup_output = client.conn.send_command("display startup")
 
-    members = _parse_version(version_output)
+    units = _parse_version(version_output)
     esn_map = _parse_esn(esn_output)
     startup_map = _parse_startup(startup_output)
 
@@ -203,11 +203,11 @@ def get_info(client):
         "next_startup_patch": None,
     }
 
-    for member in members:
-        member["esn"] = esn_map.get("device" if single_device else member["id"])
-        member.update(startup_map.get(member["role"], _empty_startup))
+    for unit in units:
+        unit["esn"] = esn_map.get("device" if single_device else unit["id"])
+        unit.update(startup_map.get(unit["role"], _empty_startup))
 
-    return {"members": members}
+    return {"units": units}
 
 
 def read_info(client, *, return_result: bool = False):
@@ -215,8 +215,8 @@ def read_info(client, *, return_result: bool = False):
     Read device information as a full workflow operation (connect → collect → disconnect).
 
     Returns:
-        return_result=False: dict {"members": [...]}
-        return_result=True:  OperationResult with metadata["members"]
+        return_result=False: dict {"units": [...]}
+        return_result=True:  OperationResult with metadata["units"]
     """
     result = OperationResult(
         success=True,

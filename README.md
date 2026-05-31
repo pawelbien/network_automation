@@ -94,15 +94,15 @@ Returns:
 ### Huawei VRP
 
 `get_info` collects data from `display version`, `display esn`, and `display startup`,
-and correlates them into a unified **member list**. Each member represents one physical
+and correlates them into a unified **unit list**. Each unit represents one physical
 device — either a standalone router or a slot in a stack.
 
 ```python
 result = client.get_info()
 
-for member in result["members"]:
-    print(f"[{member['id']}] {member['role']}: {member['model']} "
-          f"ESN={member['esn']} SW={member['software_version']}")
+for unit in result["units"]:
+    print(f"[{unit['id']}] {unit['role']}: {unit['model']} "
+          f"ESN={unit['esn']} SW={unit['software_version']}")
 ```
 
 Each member dict contains:
@@ -124,7 +124,7 @@ Example output for a 2-member stack:
 
 ```python
 {
-    "members": [
+    "units": [
         {
             "id": 1,
             "role": "master",
@@ -180,8 +180,8 @@ client = get_client(
 
 # Device information
 info = client.get_info()
-for member in info["members"]:
-    print(f"[{member['id']}] {member['role']}: {member['model']} ESN={member['esn']}")
+for unit in info["units"]:
+    print(f"[{unit['id']}] {unit['role']}: {unit['model']} ESN={unit['esn']}")
 
 # Command execution
 result = client.run(

@@ -150,10 +150,10 @@ SlaveBoard:
 # ---------------------------------------------------------------------------
 
 def test_parse_version_router():
-    members = _parse_version(DISPLAY_VERSION_ROUTER)
+    units = _parse_version(DISPLAY_VERSION_ROUTER)
 
-    assert len(members) == 1
-    m = members[0]
+    assert len(units) == 1
+    m = units[0]
     assert m["id"] == 0
     assert m["role"] == "master"
     assert m["model"] == "AR651"
@@ -162,11 +162,11 @@ def test_parse_version_router():
 
 
 def test_parse_version_stack():
-    members = _parse_version(DISPLAY_VERSION_STACK)
+    units = _parse_version(DISPLAY_VERSION_STACK)
 
-    assert len(members) == 2
+    assert len(units) == 2
 
-    master, standby = members
+    master, standby = units
     assert master["id"] == 1
     assert master["role"] == "master"
     assert master["model"] == "S6730-H24X6C"
@@ -253,10 +253,10 @@ def test_get_info_router(huawei_client):
     )
 
     info = get_info(huawei_client)
-    members = info["members"]
+    units = info["units"]
 
-    assert len(members) == 1
-    m = members[0]
+    assert len(units) == 1
+    m = units[0]
     assert m["id"] == 0
     assert m["role"] == "master"
     assert m["model"] == "AR651"
@@ -275,11 +275,11 @@ def test_get_info_stack(huawei_client):
     )
 
     info = get_info(huawei_client)
-    members = info["members"]
+    units = info["units"]
 
-    assert len(members) == 2
+    assert len(units) == 2
 
-    master, standby = members
+    master, standby = units
     assert master["id"] == 1
     assert master["role"] == "master"
     assert master["model"] == "S6730-H24X6C"
@@ -308,8 +308,8 @@ def test_read_info_returns_dict(monkeypatch, huawei_client):
     result = read_info(huawei_client, return_result=False)
 
     assert isinstance(result, dict)
-    assert "members" in result
-    assert result["members"][0]["model"] == "AR651"
+    assert "units" in result
+    assert result["units"][0]["model"] == "AR651"
 
 
 def test_read_info_returns_operation_result(monkeypatch, huawei_client):
@@ -324,5 +324,5 @@ def test_read_info_returns_operation_result(monkeypatch, huawei_client):
     assert isinstance(result, OperationResult)
     assert result.success is True
     assert result.operation == "info"
-    assert "members" in result.metadata
-    assert result.metadata["members"][0]["model"] == "AR651"
+    assert "units" in result.metadata
+    assert result.metadata["units"][0]["model"] == "AR651"
