@@ -192,7 +192,10 @@ for entry in result.metadata["output"]:
     print(entry["command"], entry["output"])
 ```
 
-A CLI-style script (SSH key, multiple commands, formatted output) lives at `examples/huawei_vrp/run_command.py`, analogous to `examples/mikrotik_routeros/run_command.py`.
+CLI-style scripts live in `examples/huawei_vrp/`:
+
+- `run_command.py` — SSH key auth, multiple commands, formatted output
+- `read_info.py` — collect and print device information (version, ESN, startup image) per unit
 
 ---
 
