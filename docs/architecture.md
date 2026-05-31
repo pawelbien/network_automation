@@ -145,7 +145,6 @@ Helpers assume:
 Examples:
 
 - `get_info` — mandatory, always available
-- `get_hardware_info` — optional capability (not available on CHR)
 - `download_firmware`
 - `upload_firmware`
 - `cleanup_old_backups`
@@ -172,14 +171,11 @@ info = read_info(client)
 # {"units": [{"id": 0, "role": "master", "arch": "...", "version": "...", ...}]}
 ```
 
-Internally, `get_info` delegates to three dedicated helpers:
+Internally, `get_info` delegates to three private helpers:
 
-- **`get_software_info`** — mandatory; architecture and RouterOS version
-- **`get_system_identity`** — mandatory; system hostname
-- **`get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
-
-These helpers remain independent because they are also used directly by
-`client.get_info()`, where only a specific category is needed.
+- **`_get_software_info`** — mandatory; architecture and RouterOS version
+- **`_get_system_identity`** — mandatory; system hostname
+- **`_get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
 
 **Huawei VRP — unified member model**
 
@@ -481,7 +477,7 @@ The following rules must not be violated:
 - reboot-causing operations must be explicit
 - exceptions control flow
 - operations may explicitly skip unsupported platforms (reported via OperationResult)
-- **information model is platform-specific** — both MikroTik and Huawei expose a unified unit model via `read_info` / `get_info`; MikroTik additionally keeps split internal helpers for independent consumption by other workflows
+- **information model is platform-specific** — both MikroTik and Huawei expose a unified unit model via `read_info` / `get_info`; MikroTik uses private split helpers (`_get_software_info`, `_get_system_identity`, `_get_hardware_info`) internally
 - **workflows decide what to collect** — workflows choose which helpers to call and how to handle missing capabilities
 
 These invariants are intentionally strict.

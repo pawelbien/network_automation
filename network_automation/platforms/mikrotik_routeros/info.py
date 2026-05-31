@@ -9,7 +9,7 @@ import re
 from network_automation.results import OperationResult
 
 
-def get_software_info(client):
+def _get_software_info(client):
     """Read system architecture and version."""
     client.logger.info("Reading system info...")
 
@@ -33,7 +33,7 @@ def get_software_info(client):
     return {"arch": arch, "version": version}
 
 
-def get_hardware_info(client):
+def _get_hardware_info(client):
     """
     Read hardware information from RouterBOARD.
     
@@ -89,7 +89,7 @@ def get_hardware_info(client):
         "bootloader_upgrade_firmware": bootloader_upgrade_firmware,
     }
 
-def get_system_identity(client):
+def _get_system_identity(client):
     """
     Read RouterOS system identity (device name).
     
@@ -150,11 +150,11 @@ def get_info(client):
     """
     client.logger.info("Reading device info...")
 
-    software = get_software_info(client)
+    software = _get_software_info(client)
     client.arch = software["arch"]
     client.current_version = software["version"]
 
-    identity = get_system_identity(client)
+    identity = _get_system_identity(client)
 
     unit = {
         "id": 0,
@@ -169,7 +169,7 @@ def get_info(client):
     }
 
     try:
-        hardware = get_hardware_info(client)
+        hardware = _get_hardware_info(client)
         unit["serial"] = hardware["serial"]
         unit["model"] = hardware["model"]
         unit["bootloader_current_firmware"] = hardware["bootloader_current_firmware"]
