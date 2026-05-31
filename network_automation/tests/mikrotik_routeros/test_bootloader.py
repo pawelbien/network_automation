@@ -64,6 +64,13 @@ def chr_routerboard_output():
 # bootloader_upgrade workflow
 # -------------------------------------------------------
 
+_SOFTWARE_INFO = """
+    version: 7.14 (stable)
+    architecture-name: arm64
+"""
+_IDENTITY_INFO = "name: CCR2004"
+
+
 def test_bootloader_upgrade_skipped_if_up_to_date(
     monkeypatch,
     mikrotik_client,
@@ -73,7 +80,11 @@ def test_bootloader_upgrade_skipped_if_up_to_date(
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
 
-    fake_conn.send_command.return_value = bootloader_print_uptodate
+    fake_conn.send_command.side_effect = [
+        _SOFTWARE_INFO,
+        _IDENTITY_INFO,
+        bootloader_print_uptodate,
+    ]
     mikrotik_client.conn = fake_conn
 
     result = bootloader_upgrade(
@@ -101,7 +112,11 @@ def test_bootloader_upgrade_chr_is_skipped(
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
 
-    fake_conn.send_command.return_value = chr_routerboard_output
+    fake_conn.send_command.side_effect = [
+        _SOFTWARE_INFO,
+        _IDENTITY_INFO,
+        chr_routerboard_output,
+    ]
     mikrotik_client.conn = fake_conn
 
     result = bootloader_upgrade(
@@ -131,9 +146,12 @@ def test_bootloader_upgrade_stages_and_reboots(
     )
 
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,  # get_info before upgrade
-        bootloader_print_after,   # get_info after upgrade
-        bootloader_print_after,   # raw_output check for confirmation message
+        # get_info() before upgrade
+        _SOFTWARE_INFO, _IDENTITY_INFO, bootloader_print_before,
+        # get_info() after staging
+        _SOFTWARE_INFO, _IDENTITY_INFO, bootloader_print_after,
+        # raw_output check for confirmation message
+        bootloader_print_after,
     ]
 
     fake_conn.send_command_timing.return_value = "y"
@@ -177,9 +195,12 @@ def test_bootloader_upgrade_unclear_state_still_reboots(
     )
 
     fake_conn.send_command.side_effect = [
-        bootloader_print_before,  # get_info before upgrade
-        bootloader_print_before,  # get_info after upgrade
-        bootloader_print_before,  # raw_output check (optional)
+        # get_info() before upgrade
+        _SOFTWARE_INFO, _IDENTITY_INFO, bootloader_print_before,
+        # get_info() after staging (state unchanged)
+        _SOFTWARE_INFO, _IDENTITY_INFO, bootloader_print_before,
+        # raw_output check (optional)
+        bootloader_print_before,
     ]
 
     fake_conn.send_command_timing.return_value = "y"

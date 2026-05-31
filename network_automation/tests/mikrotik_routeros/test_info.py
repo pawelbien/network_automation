@@ -13,6 +13,26 @@ from network_automation.platforms.mikrotik_routeros.info import (
 )
 
 
+# ---------- Shared device output samples ----------
+
+_SOFTWARE_INFO = """
+        uptime: 1d
+        version: 7.13.5 (stable)
+        architecture-name: arm64
+        """
+
+_IDENTITY = "name: RouterOS-Device"
+
+_ROUTERBOARD_INFO = """
+           routerboard: yes
+                 model: CCR2004-16G-2S+
+              revision: r2
+         serial-number: HG6099981S2
+      current-firmware: 7.19.1
+      upgrade-firmware: 7.20.7
+        """
+
+
 # ---------- Fixtures ----------
 
 @pytest.fixture
@@ -36,13 +56,12 @@ def test_is_newer_version():
 
 # ---------- get_info ----------
 
-def test_get_info_parsing(mikrotik_client, fake_conn):
-    fake_conn.send_command.return_value = """
-        uptime: 1d
-        version: 7.13.5 (stable)
-        architecture-name: arm64
-    """
+def test_get_info_parsing(monkeypatch, mikrotik_client, fake_conn):
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
     mikrotik_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = [_SOFTWARE_INFO, _IDENTITY, _ROUTERBOARD_INFO]
 
     mikrotik_client.get_info()
 
@@ -50,7 +69,9 @@ def test_get_info_parsing(mikrotik_client, fake_conn):
     assert mikrotik_client.current_version == "7.13.5 (stable)"
 
 
-def test_get_info_missing_arch(mikrotik_client, fake_conn):
+def test_get_info_missing_arch(monkeypatch, mikrotik_client, fake_conn):
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
     fake_conn.send_command.return_value = "version: 7.13.5"
     mikrotik_client.conn = fake_conn
 
@@ -198,22 +219,7 @@ def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
 
     mikrotik_client.conn = fake_conn
 
-    fake_conn.send_command.side_effect = [
-        """
-        uptime: 1d
-        version: 7.13.5 (stable)
-        architecture-name: arm64
-        """,
-        "name: RouterOS-Device",
-        """
-       routerboard: yes
-             model: CCR2004-16G-2S+
-          revision: r2
-     serial-number: HG6099981S2
-  current-firmware: 7.19.1
-  upgrade-firmware: 7.20.7
-        """,
-    ]
+    fake_conn.send_command.side_effect = [_SOFTWARE_INFO, _IDENTITY, _ROUTERBOARD_INFO]
 
     info = read_info(mikrotik_client)
 
@@ -243,12 +249,8 @@ def test_read_info_chr_no_hardware(monkeypatch, mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     fake_conn.send_command.side_effect = [
-        """
-        uptime: 1d
-        version: 7.13.5 (stable)
-        architecture-name: arm64
-        """,
-        "name: RouterOS-Device",
+        _SOFTWARE_INFO,
+        _IDENTITY,
         "bad command name routerboard (line 1 column 9)",
     ]
 
@@ -273,21 +275,7 @@ def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
 
     mikrotik_client.conn = fake_conn
 
-    fake_conn.send_command.side_effect = [
-        """
-        uptime: 1d
-        version: 7.13.5 (stable)
-        architecture-name: arm64
-        """,
-        "name: RouterOS-Device",
-        """
-       routerboard: yes
-             model: CCR2004-16G-2S+
-     serial-number: HG6099981S2
-  current-firmware: 7.19.1
-  upgrade-firmware: 7.20.7
-        """,
-    ]
+    fake_conn.send_command.side_effect = [_SOFTWARE_INFO, _IDENTITY, _ROUTERBOARD_INFO]
 
     from network_automation.results import OperationResult
 

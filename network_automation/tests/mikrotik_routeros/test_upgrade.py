@@ -6,6 +6,28 @@ from network_automation.platforms.mikrotik_routeros.upgrade import download_firm
 from network_automation.results import OperationResult
 
 
+# ---------- Shared device output helpers ----------
+
+_IDENTITY = "name: RouterOS-Device"
+
+
+def _software_info(version: str) -> str:
+    return f"""
+        version: {version}
+        architecture-name: arm64
+        """
+
+
+def _routerboard_info(current: str, upgrade: str) -> str:
+    return f"""
+           routerboard: yes
+                 model: CCR2004-16G-2S+
+         serial-number: HG6099981S2
+      current-firmware: {current}
+      upgrade-firmware: {upgrade}
+        """
+
+
 # ---------- Fixtures ----------
 
 @pytest.fixture
@@ -104,10 +126,11 @@ def test_upgrade_skipped_if_not_newer(mocker, mikrotik_client, fake_conn):
         return_value=fake_conn,
     )
 
-    fake_conn.send_command.return_value = """
-        version: 7.14
-        architecture-name: arm64
-    """
+    fake_conn.send_command.side_effect = [
+        _software_info("7.14"),
+        _IDENTITY,
+        _routerboard_info("7.14.0", "7.14.0"),
+    ]
 
     mikrotik_client.upgrade()
 
@@ -123,14 +146,10 @@ def test_upgrade_success(mocker, mikrotik_client, fake_conn):
     )
 
     fake_conn.send_command.side_effect = [
-        """
-        version: 7.13
-        architecture-name: arm64
-        """,
-        """
-        version: 7.14
-        architecture-name: arm64
-        """,
+        # get_info() before upgrade (current=7.13)
+        _software_info("7.13"), _IDENTITY, _routerboard_info("7.13.0", "7.14.0"),
+        # get_info() after reboot (final=7.14)
+        _software_info("7.14"), _IDENTITY, _routerboard_info("7.14.0", "7.14.0"),
     ]
 
     fake_conn.send_command_timing.return_value = "rebooting"
@@ -162,14 +181,10 @@ def test_upgrade_version_mismatch(mocker, mikrotik_client, fake_conn):
     )
 
     fake_conn.send_command.side_effect = [
-        """
-        version: 7.13
-        architecture-name: arm64
-        """,
-        """
-        version: 7.12
-        architecture-name: arm64
-        """,
+        # get_info() before upgrade
+        _software_info("7.13"), _IDENTITY, _routerboard_info("7.13.0", "7.14.0"),
+        # get_info() after reboot (version mismatch: 7.12 instead of 7.14)
+        _software_info("7.12"), _IDENTITY, _routerboard_info("7.12.0", "7.14.0"),
     ]
 
     mocker.patch.object(
