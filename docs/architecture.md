@@ -416,6 +416,72 @@ Tests describe contracts, not implementations.
 
 ---
 
+### Test File Layout
+
+Each test file maps **1:1 to a platform module**:
+
+```
+tests/
+├── test_results.py              # OperationResult
+├── test_execution_context.py    # ExecutionContext + logger injection
+├── test_logging_injected.py     # injected logger via get_client()
+├── test_logging_cli.py          # default Python logger
+├── mikrotik_routeros/
+│   ├── conftest.py              # mikrotik_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_bootloader.py       # ← bootloader.py
+│   ├── test_download.py         # ← download.py
+│   ├── test_info.py             # ← info.py
+│   ├── test_run.py              # ← run.py
+│   ├── test_upgrade.py          # ← upgrade.py
+│   └── test_upload.py           # ← upload.py
+└── huawei_vrp/
+    ├── conftest.py              # huawei_client fixture
+    ├── test_download.py         # ← download.py
+    ├── test_info.py             # ← info.py
+    ├── test_run.py              # ← run.py
+    └── test_upload.py           # ← upload.py
+```
+
+When adding a new module `foo.py`, the corresponding test file is `test_foo.py`.
+
+---
+
+### Testing Patterns
+
+**Lifecycle mocking** — every workflow test patches `connect` and `disconnect`:
+
+```python
+monkeypatch.setattr(client, "connect", lambda: None)
+monkeypatch.setattr(client, "disconnect", lambda: None)
+```
+
+**SFTP testing** — upload and download tests use a minimal fake SFTP stack
+instead of real SSH connections:
+
+```python
+class FakeSFTP:
+    def __init__(self): self.transfers = []
+    def get(self, remote, local): self.transfers.append((remote, local))
+    def put(self, local, remote): self.transfers.append((local, remote))
+    def close(self): pass
+
+class FakeRemoteConnPre:
+    def open_sftp(self): return FakeSFTP()
+
+class FakeConn:
+    remote_conn_pre = FakeRemoteConnPre()
+```
+
+**Helper isolation** — helpers (`_get_software_info`, `_parse_version`, …) are
+tested directly with a client whose `conn` attribute is a `MagicMock`,
+without going through `connect` / `disconnect`.
+
+**OperationResult tests** — each workflow module's test file includes a test
+for the `return_result=True` path alongside the unit tests for internal logic.
+
+---
+
 ## Extending the Library
 
 ### Adding a new operation
