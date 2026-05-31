@@ -34,9 +34,7 @@ Not every operation is available on every platform.
 
 ### MikroTik RouterOS
 
-- Device information
-  - Software info (`get_info`) — mandatory, always available
-  - Hardware info (`get_hardware_info`) — optional, not available on CHR
+- Device information (`read_info`) — unified unit model, hardware fields `None` on CHR
 - Backup creation and download (`backup`)
 - Command execution (`run`)
 - Firmware upgrade (`upgrade`)
@@ -59,37 +57,58 @@ Not every operation is available on every platform.
 
 ### MikroTik RouterOS
 
-The library separates software and hardware information collection:
+`read_info` collects software, identity, and hardware information and returns
+a unified **unit structure**. MikroTik is always a single-unit device, so the
+list always contains exactly one entry.
 
-**Software Information (Mandatory)**
-
-```python
-client.get_info()
-# Sets: client.arch, client.current_version
-
-print(f"Arch: {client.arch}, Version: {client.current_version}")
-```
-
-**Hardware Information (Optional)**
-
-Hardware info is not available on all platforms (e.g., CHR):
+Hardware fields are `None` on CHR (Cloud Hosted Router), which does not expose
+RouterBOARD hardware.
 
 ```python
-try:
-    hardware = client.get_hardware_info()
-    print(f"Serial: {hardware['serial']}")
-    print(f"Model: {hardware['model']}")
-    print(f"Bootloader: {hardware['bootloader_current_firmware']}")
-except RuntimeError:
-    # Hardware info not supported (e.g., CHR)
-    pass
+from network_automation.platforms.mikrotik_routeros.info import read_info
+
+info = read_info(client)
+unit = info["units"][0]
+
+print(f"Arch: {unit['arch']}, Version: {unit['version']}, Name: {unit['name']}")
+if unit["serial"]:
+    print(f"Serial: {unit['serial']}, Model: {unit['model']}")
+    print(f"Bootloader: {unit['bootloader_current_firmware']}")
 ```
 
-Returns:
-- `serial`: device serial number
-- `model`: device model name
-- `bootloader_current_firmware`: current RouterBOARD firmware version
-- `bootloader_upgrade_firmware`: available RouterBOARD firmware upgrade version
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `arch` | Architecture (e.g. `arm64`, `x86_64`) |
+| `version` | RouterOS version string |
+| `name` | System identity (hostname) |
+| `serial` | RouterBOARD serial number, or `None` on CHR |
+| `model` | Device model, or `None` on CHR |
+| `bootloader_current_firmware` | Current RouterBOARD firmware, or `None` on CHR |
+| `bootloader_upgrade_firmware` | Available RouterBOARD firmware upgrade, or `None` on CHR |
+
+Example output (RouterBOARD device):
+
+```python
+{
+    "units": [
+        {
+            "id": 0,
+            "role": "master",
+            "arch": "arm64",
+            "version": "7.13.5 (stable)",
+            "name": "core-router",
+            "serial": "HG6099981S2",
+            "model": "CCR2004-16G-2S+",
+            "bootloader_current_firmware": "7.19.1",
+            "bootloader_upgrade_firmware": "7.20.7",
+        }
+    ]
+}
+```
 
 ### Huawei VRP
 
@@ -351,7 +370,7 @@ Tests are designed to run without real network devices.
 ## Documentation
 
 - `docs/architecture.md` — architectural invariants and patterns
-- `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples
+- `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
 - `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution)
 
 ---

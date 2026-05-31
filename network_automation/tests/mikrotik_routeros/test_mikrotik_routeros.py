@@ -9,6 +9,7 @@ from network_automation.platforms.mikrotik_routeros.info import (
     get_software_info,
     get_hardware_info,
     get_system_identity,
+    get_info,
     read_info,
 )
 from network_automation.platforms.mikrotik_routeros.upgrade import download_firmware
@@ -194,12 +195,12 @@ def test_get_system_identity_missing_name(mikrotik_client, fake_conn):
 # ---------- read_info workflow ----------
 
 def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
-    """Test read_info returns dict with software and hardware info."""
+    """Test read_info returns unit-based dict with software and hardware info."""
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
-    
+
     mikrotik_client.conn = fake_conn
-    
+
     fake_conn.send_command.side_effect = [
         """
         uptime: 1d
@@ -216,30 +217,35 @@ def test_read_info_with_hardware(monkeypatch, mikrotik_client, fake_conn):
   upgrade-firmware: 7.20.7
         """,
     ]
-    
+
     info = read_info(mikrotik_client)
-    
+
     assert isinstance(info, dict)
-    assert info["arch"] == "arm64"
-    assert info["version"] == "7.13.5 (stable)"
-    assert info["name"] == "RouterOS-Device"
-    assert info["serial"] == "HG6099981S2"
-    assert info["model"] == "CCR2004-16G-2S+"
-    assert info["bootloader_current_firmware"] == "7.19.1"
-    assert info["bootloader_upgrade_firmware"] == "7.20.7"
-    
-    # Check client state
+    assert "units" in info
+    assert len(info["units"]) == 1
+
+    unit = info["units"][0]
+    assert unit["id"] == 0
+    assert unit["role"] == "master"
+    assert unit["arch"] == "arm64"
+    assert unit["version"] == "7.13.5 (stable)"
+    assert unit["name"] == "RouterOS-Device"
+    assert unit["serial"] == "HG6099981S2"
+    assert unit["model"] == "CCR2004-16G-2S+"
+    assert unit["bootloader_current_firmware"] == "7.19.1"
+    assert unit["bootloader_upgrade_firmware"] == "7.20.7"
+
     assert mikrotik_client.arch == "arm64"
     assert mikrotik_client.current_version == "7.13.5 (stable)"
 
 
 def test_read_info_chr_no_hardware(monkeypatch, mikrotik_client, fake_conn):
-    """Test read_info returns dict with only software info on CHR."""
+    """Test read_info returns unit with None hardware fields on CHR."""
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
-    
+
     mikrotik_client.conn = fake_conn
-    
+
     fake_conn.send_command.side_effect = [
         """
         uptime: 1d
@@ -249,26 +255,29 @@ def test_read_info_chr_no_hardware(monkeypatch, mikrotik_client, fake_conn):
         "name: RouterOS-Device",
         "bad command name routerboard (line 1 column 9)",
     ]
-    
+
     info = read_info(mikrotik_client)
-    
+
     assert isinstance(info, dict)
-    assert info["arch"] == "arm64"
-    assert info["version"] == "7.13.5 (stable)"
-    assert info["name"] == "RouterOS-Device"
-    assert "serial" not in info
-    assert "model" not in info
-    assert "bootloader_current_firmware" not in info
-    assert "bootloader_upgrade_firmware" not in info
+    assert "units" in info
+
+    unit = info["units"][0]
+    assert unit["arch"] == "arm64"
+    assert unit["version"] == "7.13.5 (stable)"
+    assert unit["name"] == "RouterOS-Device"
+    assert unit["serial"] is None
+    assert unit["model"] is None
+    assert unit["bootloader_current_firmware"] is None
+    assert unit["bootloader_upgrade_firmware"] is None
 
 
 def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
     """Test read_info returns OperationResult when return_result=True."""
     monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
     monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
-    
+
     mikrotik_client.conn = fake_conn
-    
+
     fake_conn.send_command.side_effect = [
         """
         uptime: 1d
@@ -284,19 +293,22 @@ def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
   upgrade-firmware: 7.20.7
         """,
     ]
-    
+
     from network_automation.results import OperationResult
-    
+
     result = read_info(mikrotik_client, return_result=True)
-    
+
     assert isinstance(result, OperationResult)
     assert result.success is True
     assert result.operation == "info"
-    assert result.metadata["arch"] == "arm64"
-    assert result.metadata["version"] == "7.13.5 (stable)"
-    assert result.metadata["name"] == "RouterOS-Device"
-    assert result.metadata["serial"] == "HG6099981S2"
-    assert result.metadata["model"] == "CCR2004-16G-2S+"
+    assert "units" in result.metadata
+
+    unit = result.metadata["units"][0]
+    assert unit["arch"] == "arm64"
+    assert unit["version"] == "7.13.5 (stable)"
+    assert unit["name"] == "RouterOS-Device"
+    assert unit["serial"] == "HG6099981S2"
+    assert unit["model"] == "CCR2004-16G-2S+"
 
 
 # ---------- download_firmware ----------

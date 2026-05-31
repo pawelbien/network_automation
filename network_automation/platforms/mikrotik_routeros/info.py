@@ -127,24 +127,67 @@ def is_newer_version(current_version, new_version):
     return normalize_version(new_version) > normalize_version(current_version)
 
 
+def get_info(client):
+    """
+    Collect device information and return a unified unit structure.
+
+    Returns dict:
+    {
+        "units": [
+            {
+                "id":                          int,        # always 0
+                "role":                        str,        # always "master"
+                "arch":                        str,
+                "version":                     str,
+                "name":                        str,
+                "serial":                      str | None, # None on CHR
+                "model":                       str | None, # None on CHR
+                "bootloader_current_firmware": str | None, # None on CHR
+                "bootloader_upgrade_firmware": str | None, # None on CHR
+            }
+        ]
+    }
+    """
+    client.logger.info("Reading device info...")
+
+    software = get_software_info(client)
+    client.arch = software["arch"]
+    client.current_version = software["version"]
+
+    identity = get_system_identity(client)
+
+    unit = {
+        "id": 0,
+        "role": "master",
+        "arch": software["arch"],
+        "version": software["version"],
+        "name": identity["name"],
+        "serial": None,
+        "model": None,
+        "bootloader_current_firmware": None,
+        "bootloader_upgrade_firmware": None,
+    }
+
+    try:
+        hardware = get_hardware_info(client)
+        unit["serial"] = hardware["serial"]
+        unit["model"] = hardware["model"]
+        unit["bootloader_current_firmware"] = hardware["bootloader_current_firmware"]
+        unit["bootloader_upgrade_firmware"] = hardware["bootloader_upgrade_firmware"]
+    except RuntimeError:
+        pass  # CHR: RouterBOARD not available
+
+    return {"units": [unit]}
+
+
 def read_info(client, *, return_result: bool = False):
     """
-    Read device architecture, version, hardware information, and system identity as a workflow operation.
-    Raises exceptions on failure.
-    For external call.
-    
-    Returns:
-        If return_result=True: OperationResult with metadata
-        If return_result=False: dict with keys:
-            - arch: architecture name
-            - version: RouterOS version
-            - name: device name (system identity)
-            - serial: serial number (if available)
-            - model: device model (if available)
-            - bootloader_current_firmware: current bootloader firmware (if available)
-            - bootloader_upgrade_firmware: upgrade bootloader firmware (if available)
-    """
+    Read device information as a full workflow operation (connect → collect → disconnect).
 
+    Returns:
+        return_result=False: dict {"units": [...]}
+        return_result=True:  OperationResult with metadata["units"]
+    """
     result = OperationResult(
         success=True,
         operation="info",
@@ -154,33 +197,11 @@ def read_info(client, *, return_result: bool = False):
 
     client.connect()
     try:
-        info = get_software_info(client)
-
-        # Persist on client (existing behavior pattern)
-        client.arch = info["arch"]
-        client.current_version = info["version"]
-
-        # Start with software info
-        return_dict = info.copy()
+        info = get_info(client)
         result.metadata.update(info)
-        
-        # Get system identity (device name)
-        identity_info = get_system_identity(client)
-        return_dict.update(identity_info)
-        result.metadata.update(identity_info)
-        
-        # Try to get hardware info (may not be available on CHR)
-        try:
-            hardware_info = get_hardware_info(client)
-            return_dict.update(hardware_info)
-            result.metadata.update(hardware_info)
-        except RuntimeError:
-            # Hardware info not available (e.g., CHR platform)
-            result.metadata["hardware_info_available"] = False
-        
         result.message = "System information read successfully"
 
-        return result if return_result else return_dict
+        return result if return_result else info
 
     except Exception as exc:
         result.success = False

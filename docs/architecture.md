@@ -158,24 +158,29 @@ Helpers are easy to unit test in isolation.
 The model is platform-specific. Platforms choose the model that fits their
 data structure and correlation requirements.
 
-**MikroTik RouterOS — split model**
+**MikroTik RouterOS — unified unit model (with split internal helpers)**
 
-Information is separated into independent categories collected by dedicated helpers:
+The public `read_info` workflow calls `get_info`, which assembles all collected
+data into a unified `{"units": [...]}` structure — the same shape as Huawei.
+MikroTik is always a single-unit device, so `units` always contains exactly one entry.
 
-- **Software info** (`get_software_info`) — mandatory
-  - Architecture and RouterOS version
-  - Required for firmware upgrades and device identification
+Hardware fields (`serial`, `model`, `bootloader_current_firmware`,
+`bootloader_upgrade_firmware`) are `None` when RouterBOARD is unavailable (e.g., CHR).
 
-- **Hardware info** (`get_hardware_info`) — optional capability
-  - Serial number, model, bootloader firmware versions
-  - Not available on all platforms (e.g., CHR)
-  - Raises `RuntimeError` when not supported
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "arch": "...", "version": "...", ...}]}
+```
 
-- **License info** (future) — optional capability
-  - License level, expiration, features
+Internally, `get_info` delegates to three dedicated helpers:
 
-The split model works because each category comes from an independent command
-and can be collected and used independently.
+- **`get_software_info`** — mandatory; architecture and RouterOS version
+- **`get_system_identity`** — mandatory; system hostname
+- **`get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
+
+These helpers remain independent because they are also used directly by other
+workflows (`upgrade.py`, `bootloader.py`, `client.get_info()`), where only a
+specific category is needed.
 
 **Huawei VRP — unified member model**
 
@@ -477,7 +482,7 @@ The following rules must not be violated:
 - reboot-causing operations must be explicit
 - exceptions control flow
 - operations may explicitly skip unsupported platforms (reported via OperationResult)
-- **information model is platform-specific** — MikroTik uses a split model (one helper per category); Huawei uses a unified member model when cross-command correlation is required
+- **information model is platform-specific** — both MikroTik and Huawei expose a unified unit model via `read_info` / `get_info`; MikroTik additionally keeps split internal helpers for independent consumption by other workflows
 - **workflows decide what to collect** — workflows choose which helpers to call and how to handle missing capabilities
 
 These invariants are intentionally strict.
