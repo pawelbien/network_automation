@@ -144,7 +144,7 @@ Helpers assume:
 
 Examples:
 
-- `get_software_info` — mandatory, always available
+- `get_info` — mandatory, always available
 - `get_hardware_info` — optional capability (not available on CHR)
 - `download_firmware`
 - `upload_firmware`
@@ -178,9 +178,8 @@ Internally, `get_info` delegates to three dedicated helpers:
 - **`get_system_identity`** — mandatory; system hostname
 - **`get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
 
-These helpers remain independent because they are also used directly by other
-workflows (`upgrade.py`, `bootloader.py`, `client.get_info()`), where only a
-specific category is needed.
+These helpers remain independent because they are also used directly by
+`client.get_info()`, where only a specific category is needed.
 
 **Huawei VRP — unified member model**
 

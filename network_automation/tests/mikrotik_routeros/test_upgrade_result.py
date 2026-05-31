@@ -21,8 +21,8 @@ def test_upgrade_returns_result(monkeypatch, mikrotik_client):
     )
 
     monkeypatch.setattr(
-        "network_automation.platforms.mikrotik_routeros.upgrade.get_software_info",
-        lambda client: {"arch": "x86_64", "version": client.version},
+        "network_automation.platforms.mikrotik_routeros.upgrade.get_info",
+        lambda client: {"units": [{"arch": "x86_64", "version": client.version}]},
     )
 
     monkeypatch.setattr(
