@@ -2,6 +2,7 @@
 
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
+from network_automation.platforms.huawei_vrp.download import run_download
 from network_automation.platforms.huawei_vrp.info import read_info
 from network_automation.platforms.huawei_vrp.run import run as run_helper
 
@@ -54,5 +55,19 @@ class HuaweiVRP(BaseClient):
         return run_helper(
             self,
             commands,
+            return_result=return_result,
+        )
+
+    def download(
+        self,
+        *,
+        files: list[str],
+        local_dir: str,
+        return_result: bool = False,
+    ):
+        return run_download(
+            self,
+            files=files,
+            local_dir=local_dir,
             return_result=return_result,
         )
