@@ -34,7 +34,7 @@ Not every operation is available on every platform.
 
 ### MikroTik RouterOS
 
-- Device information (`read_info`) — unified unit model, hardware fields `None` on CHR
+- Device information (`get_info`) — unified unit model, hardware fields `None` on CHR
 - Backup creation and download (`backup`)
 - Command execution (`run`)
 - Firmware upgrade (`upgrade`)
@@ -65,9 +65,7 @@ Hardware fields are `None` on CHR (Cloud Hosted Router), which does not expose
 RouterBOARD hardware.
 
 ```python
-from network_automation.platforms.mikrotik_routeros.info import read_info
-
-info = read_info(client)
+info = client.get_info()
 unit = info["units"][0]
 
 print(f"Arch: {unit['arch']}, Version: {unit['version']}, Name: {unit['name']}")
@@ -181,7 +179,7 @@ client = get_client(
     password="secret",
 )
 
-client.get_info()
+info = client.get_info()
 client.backup("daily")
 ```
 

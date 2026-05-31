@@ -6,7 +6,7 @@ from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.mikrotik_routeros.backup import run_backup
 from network_automation.platforms.mikrotik_routeros.download import run_download
-from network_automation.platforms.mikrotik_routeros.info import get_software_info
+from network_automation.platforms.mikrotik_routeros.info import read_info
 from network_automation.platforms.mikrotik_routeros.run import run as run_helper
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
 from network_automation.platforms.mikrotik_routeros.bootloader import bootloader_upgrade
@@ -78,14 +78,8 @@ class MikrotikRouterOS(BaseClient):
     # System info
     # -------------------------------------------------------
 
-    def get_info(self):
-        """Read device architecture and RouterOS version."""
-        info = get_software_info(self)
-        self.arch = info["arch"]
-        self.current_version = info["version"]
-
-        self.logger.info(f"Architecture: {self.arch}")
-        self.logger.info(f"Current version: {self.current_version}")
+    def get_info(self, *, return_result: bool = False):
+        return read_info(self, return_result=return_result)
 
     # -------------------------------------------------------
     # Backup
