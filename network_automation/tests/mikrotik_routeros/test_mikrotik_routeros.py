@@ -6,9 +6,9 @@ from network_automation.platforms.mikrotik_routeros.client import MikrotikRouter
 from network_automation.platforms.mikrotik_routeros.info import (
     normalize_version,
     is_newer_version,
-    get_software_info,
-    get_hardware_info,
-    get_system_identity,
+    _get_software_info,
+    _get_hardware_info,
+    _get_system_identity,
     get_info,
     read_info,
 )
@@ -60,7 +60,7 @@ def test_get_info_missing_arch(mikrotik_client, fake_conn):
         mikrotik_client.get_info()
 
 
-# ---------- get_software_info helper ----------
+# ---------- _get_software_info helper ----------
 
 def test_get_software_info_parsing(mikrotik_client, fake_conn):
     fake_conn.send_command.return_value = """
@@ -70,7 +70,7 @@ def test_get_software_info_parsing(mikrotik_client, fake_conn):
     """
     mikrotik_client.conn = fake_conn
 
-    info = get_software_info(mikrotik_client)
+    info = _get_software_info(mikrotik_client)
 
     assert info["arch"] == "arm64"
     assert info["version"] == "7.13.5 (stable)"
@@ -81,7 +81,7 @@ def test_get_software_info_missing_version(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="Version not found"):
-        get_software_info(mikrotik_client)
+        _get_software_info(mikrotik_client)
 
 
 def test_get_software_info_missing_arch(mikrotik_client, fake_conn):
@@ -89,10 +89,10 @@ def test_get_software_info_missing_arch(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="Architecture not found"):
-        get_software_info(mikrotik_client)
+        _get_software_info(mikrotik_client)
 
 
-# ---------- get_hardware_info helper ----------
+# ---------- _get_hardware_info helper ----------
 
 def test_get_hardware_info_parsing(mikrotik_client, fake_conn):
     fake_conn.send_command.return_value = """
@@ -105,7 +105,7 @@ def test_get_hardware_info_parsing(mikrotik_client, fake_conn):
     """
     mikrotik_client.conn = fake_conn
 
-    info = get_hardware_info(mikrotik_client)
+    info = _get_hardware_info(mikrotik_client)
 
     assert info["serial"] == "HG6099981S2"
     assert info["model"] == "CCR2004-16G-2S+"
@@ -118,7 +118,7 @@ def test_get_hardware_info_chr_raises(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(RuntimeError, match="Hardware info not supported"):
-        get_hardware_info(mikrotik_client)
+        _get_hardware_info(mikrotik_client)
 
 
 def test_get_hardware_info_missing_serial(mikrotik_client, fake_conn):
@@ -131,7 +131,7 @@ def test_get_hardware_info_missing_serial(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="Serial number not found"):
-        get_hardware_info(mikrotik_client)
+        _get_hardware_info(mikrotik_client)
 
 
 def test_get_hardware_info_missing_model(mikrotik_client, fake_conn):
@@ -144,7 +144,7 @@ def test_get_hardware_info_missing_model(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="Model not found"):
-        get_hardware_info(mikrotik_client)
+        _get_hardware_info(mikrotik_client)
 
 
 def test_get_hardware_info_missing_current_firmware(mikrotik_client, fake_conn):
@@ -157,7 +157,7 @@ def test_get_hardware_info_missing_current_firmware(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="Current firmware not found"):
-        get_hardware_info(mikrotik_client)
+        _get_hardware_info(mikrotik_client)
 
 
 def test_get_hardware_info_missing_upgrade_firmware(mikrotik_client, fake_conn):
@@ -170,16 +170,16 @@ def test_get_hardware_info_missing_upgrade_firmware(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="Upgrade firmware not found"):
-        get_hardware_info(mikrotik_client)
+        _get_hardware_info(mikrotik_client)
 
 
-# ---------- get_system_identity helper ----------
+# ---------- _get_system_identity helper ----------
 
 def test_get_system_identity_parsing(mikrotik_client, fake_conn):
     fake_conn.send_command.return_value = "name: RouterOS-Device"
     mikrotik_client.conn = fake_conn
 
-    info = get_system_identity(mikrotik_client)
+    info = _get_system_identity(mikrotik_client)
 
     assert info["name"] == "RouterOS-Device"
 
@@ -189,7 +189,7 @@ def test_get_system_identity_missing_name(mikrotik_client, fake_conn):
     mikrotik_client.conn = fake_conn
 
     with pytest.raises(ValueError, match="System identity name not found"):
-        get_system_identity(mikrotik_client)
+        _get_system_identity(mikrotik_client)
 
 
 # ---------- read_info workflow ----------
