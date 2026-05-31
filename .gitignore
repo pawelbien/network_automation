@@ -28,6 +28,7 @@ dist/
 
 # Editors
 .vscode/
+.claude/
 
 # Misc
 *.swp
