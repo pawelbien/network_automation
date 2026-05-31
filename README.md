@@ -13,7 +13,7 @@ The library is designed to work consistently:
 Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
-- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), and file download (`download`) via Netmiko/SFTP; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), and file upload (`upload`) via Netmiko/SFTP; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 
 ---
 
@@ -50,6 +50,7 @@ Not every operation is available on every platform.
 - Device information (`get_info`) — unified member model, supports single devices and stacks
 - Command execution (`run`)
 - File download (`download`) — retrieve files from device via SFTP
+- File upload (`upload`) — push local files to the device via SFTP
 
 ---
 
@@ -213,6 +214,12 @@ for entry in result.metadata["output"]:
 client.download(
     files=["flash:/config.zip"],
     local_dir="/tmp/backups",
+)
+
+# File upload
+client.upload(
+    files=["/tmp/firmware.cc", "/tmp/patch.pat"],
+    remote_dir="flash:/",
 )
 ```
 

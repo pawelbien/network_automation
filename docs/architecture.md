@@ -254,6 +254,7 @@ Huawei VRP:
 client.get_info()                                    # unified member model
 client.run(["display version"], return_result=True)  # command execution
 client.download(files=["flash:/config.zip"], local_dir="/tmp/backups")  # SFTP download
+client.upload(files=["/tmp/fw.cc"], remote_dir="flash:/")               # SFTP upload
 ```
 
 Clients may be stateful (e.g. cached device info),

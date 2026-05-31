@@ -3,6 +3,7 @@
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.huawei_vrp.download import run_download
+from network_automation.platforms.huawei_vrp.upload import run_upload
 from network_automation.platforms.huawei_vrp.info import read_info
 from network_automation.platforms.huawei_vrp.run import run as run_helper
 
@@ -69,5 +70,19 @@ class HuaweiVRP(BaseClient):
             self,
             files=files,
             local_dir=local_dir,
+            return_result=return_result,
+        )
+
+    def upload(
+        self,
+        *,
+        files: list[str],
+        remote_dir: str = "/",
+        return_result: bool = False,
+    ):
+        return run_upload(
+            self,
+            files=files,
+            remote_dir=remote_dir,
             return_result=return_result,
         )
