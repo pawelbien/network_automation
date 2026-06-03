@@ -11,7 +11,7 @@ from network_automation.results import OperationResult
 
 def _get_software_info(client):
     """Read system architecture and version."""
-    client.logger.info("Reading system info...")
+    #client.logger.info("Reading system info...")
 
     output = client.conn.send_command("/system resource print")
 
@@ -45,7 +45,7 @@ def _get_hardware_info(client):
     
     Raises RuntimeError if RouterBOARD is not supported (e.g. CHR).
     """
-    client.logger.info("Reading hardware info...")
+    #client.logger.info("Reading hardware info...")
     
     output = client.conn.send_command("/system routerboard print")
     
@@ -98,7 +98,7 @@ def _get_system_identity(client):
     
     Raises ValueError if name not found in output.
     """
-    client.logger.info("Reading system identity...")
+    #client.logger.info("Reading system identity...")
     
     output = client.conn.send_command("/system identity print")
 
@@ -129,7 +129,7 @@ def is_newer_version(current_version, new_version):
 
 def get_info(client):
     """
-    Collect device information and return a unified unit structure.
+    Collect system information and return a unified unit structure.
 
     Returns dict:
     {
@@ -148,7 +148,7 @@ def get_info(client):
         ]
     }
     """
-    client.logger.info("Reading device info...")
+    client.logger.info("Reading system info...")
 
     software = _get_software_info(client)
     client.arch = software["arch"]
@@ -182,7 +182,7 @@ def get_info(client):
 
 def read_info(client, *, return_result: bool = False):
     """
-    Read device information as a full workflow operation (connect → collect → disconnect).
+    Read system information as a full workflow operation (connect → collect → disconnect).
 
     Returns:
         return_result=False: dict {"units": [...]}
