@@ -228,6 +228,7 @@ CLI-style scripts live in `examples/huawei_vrp/`:
 
 - `run_command.py` — SSH key auth, multiple commands, formatted output
 - `read_info.py` — collect and print device information (version, ESN, startup image) per unit
+- `upgrade.py` — firmware-only upgrade for single-unit devices (target version + local `.cc` file)
 
 ---
 
@@ -421,7 +422,7 @@ Tests are designed to run without real network devices.
 
 - `docs/architecture.md` — architectural invariants and patterns
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
-- `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution)
+- `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
 
 ---
 
