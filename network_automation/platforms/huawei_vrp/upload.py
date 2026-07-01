@@ -1,5 +1,6 @@
 # network_automation/platforms/huawei_vrp/upload.py
 
+import hashlib
 from pathlib import Path
 from network_automation.results import OperationResult
 
@@ -7,6 +8,22 @@ from network_automation.results import OperationResult
 # -------------------------------------------------------
 # Helper (pure logic)
 # -------------------------------------------------------
+
+def compute_local_md5(path: Path) -> str:
+    """
+    Compute the MD5 hex digest of a local file.
+
+    Read in fixed-size chunks so large firmware images don't need to be
+    loaded into memory whole.
+    """
+    digest = hashlib.md5()
+
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+
+    return digest.hexdigest()
+
 
 def upload_files(
     client,

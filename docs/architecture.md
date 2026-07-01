@@ -257,6 +257,13 @@ client.download(files=["flash:/config.zip"], local_dir="/tmp/backups")  # SFTP d
 client.upload(files=["/tmp/fw.cc"], remote_dir="flash:/")               # SFTP upload
 ```
 
+`client.upgrade()` uploads firmware/patch files through the same SFTP path as
+`client.upload()`, but additionally verifies each uploaded file's MD5
+(`display system file-md5 flash:/<file>` vs. a local `hashlib.md5` pass)
+before proceeding to configuration — see `huawei_vrp/upgrade.py`'s
+`verify_md5`. This MD5 check is specific to the `upgrade()` workflow;
+`client.upload()` itself remains a plain SFTP transfer, unchanged.
+
 Clients may be stateful (e.g. cached device info),
 but do not own lifecycle decisions.
 

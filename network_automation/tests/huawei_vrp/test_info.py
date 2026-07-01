@@ -8,8 +8,10 @@ from network_automation.platforms.huawei_vrp.info import (
     _parse_esn,
     _parse_startup,
     _parse_patch_information,
+    _parse_file_md5,
     get_info,
     get_patch_info,
+    get_file_md5,
     read_info,
 )
 from network_automation.results import OperationResult
@@ -167,6 +169,11 @@ DISPLAY_PATCH_INFORMATION_NONE = """\
 No patch exists.
 """
 
+DISPLAY_FILE_MD5 = """\
+Verifying the file, please wait...
+Info: The MD5 value of the file flash:/AR650A_V300R024C00SPC200.cc is: 5F8AD13D1C9C7C50CBCBC7C0E5E7F8AB
+"""
+
 
 # ---------------------------------------------------------------------------
 # _parse_version
@@ -278,6 +285,38 @@ def test_parse_patch_information_absent():
     assert info["patch_version"] is None
     assert info["patch_package_name"] is None
     assert info["state"] is None
+
+
+# ---------------------------------------------------------------------------
+# _parse_file_md5
+# ---------------------------------------------------------------------------
+
+def test_parse_file_md5_extracts_lowercased_hash():
+    md5 = _parse_file_md5(DISPLAY_FILE_MD5)
+
+    assert md5 == "5f8ad13d1c9c7c50cbcbc7c0e5e7f8ab"
+
+
+def test_parse_file_md5_raises_when_no_hash_present():
+    with pytest.raises(ValueError):
+        _parse_file_md5("Error: file does not exist\n")
+
+
+# ---------------------------------------------------------------------------
+# get_file_md5 (uses fake conn, no connection lifecycle)
+# ---------------------------------------------------------------------------
+
+def test_get_file_md5(huawei_client):
+    conn = MagicMock()
+    conn.send_command.side_effect = [DISPLAY_FILE_MD5]
+    huawei_client.conn = conn
+
+    md5 = get_file_md5(huawei_client, "AR650A_V300R024C00SPC200.cc")
+
+    assert md5 == "5f8ad13d1c9c7c50cbcbc7c0e5e7f8ab"
+    conn.send_command.assert_called_once_with(
+        "display system file-md5 flash:/AR650A_V300R024C00SPC200.cc"
+    )
 
 
 # ---------------------------------------------------------------------------

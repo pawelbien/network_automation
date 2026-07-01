@@ -5,19 +5,20 @@ Huawei VRP upgrade workflow (single-unit): firmware, patch, or both.
 
 Scope of this implementation — see engineering_handbook/tmp/huawei_vrp_update.txt
 for the full target algorithm: version comparison, firmware/patch upload,
-startup configuration, hot patch apply, reboot, and post-reboot verification.
+MD5 verification, startup configuration, hot patch apply, reboot, and
+post-reboot verification.
 
 Deliberately out of scope for this pass (tracked as follow-up work):
-MD5 verification, idempotency checks beyond the version comparison, pre/post
-health checks, flash cleanup, automatic rollback, concurrency locking, forced
-downgrade, and multi-unit/stack upgrades.
+idempotency checks beyond the version comparison, pre/post health checks,
+flash cleanup, automatic rollback, concurrency locking, forced downgrade,
+and multi-unit/stack upgrades.
 """
 
 from pathlib import Path
 
 from network_automation.results import OperationResult
-from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, _parse_startup
-from network_automation.platforms.huawei_vrp.upload import upload_files
+from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, get_file_md5, _parse_startup
+from network_automation.platforms.huawei_vrp.upload import upload_files, compute_local_md5
 from network_automation.platforms.huawei_vrp.version import (
     determine_operation_type,
     parse_patch_version,
@@ -65,6 +66,29 @@ def configure_next_startup_patch(client, filename: str):
             "Startup configuration verification failed: expected next "
             f"startup patch to end with '{filename}', got {next_patch!r}"
         )
+
+
+def verify_md5(client, path: Path):
+    """
+    Verify that a file just uploaded to flash matches its local MD5.
+
+    Computes the local file's MD5 (hashlib) and compares it against the
+    device-reported MD5 (`display system file-md5 flash:/<file>`).
+
+    - no connect/disconnect
+    - raises RuntimeError on mismatch — MD5 verification is mandatory for
+      every uploaded file, per engineering_handbook/tmp/huawei_vrp_update.txt
+    """
+    expected_md5 = compute_local_md5(path)
+    actual_md5 = get_file_md5(client, path.name)
+
+    if actual_md5 != expected_md5:
+        raise RuntimeError(
+            f"MD5 verification failed for {path.name}: expected "
+            f"{expected_md5}, got {actual_md5}"
+        )
+
+    return {"expected_md5": expected_md5, "actual_md5": actual_md5, "match": True}
 
 
 def _verify_patch_active(client, expected_patch_version: str):
@@ -124,15 +148,17 @@ def upgrade(client, *, return_result: bool = False):
     Steps: connect, compare firmware/patch versions, then depending on the
     operation type:
     - NONE: skip.
-    - PATCH_ONLY: upload patch, hot-apply, verify, save configuration.
-    - FIRMWARE_ONLY: upload firmware, configure next startup image, reboot,
-      wait for reconnect, verify final firmware version.
-    - FIRMWARE_AND_PATCH: upload firmware + patch, configure next startup
-      image and patch, reboot, wait for reconnect, verify final firmware and
-      patch, save configuration.
+    - PATCH_ONLY: upload patch, verify its MD5, hot-apply, verify, save
+      configuration.
+    - FIRMWARE_ONLY: upload firmware, verify its MD5, configure next startup
+      image, reboot, wait for reconnect, verify final firmware version.
+    - FIRMWARE_AND_PATCH: upload firmware + patch, verify both MD5s,
+      configure next startup image and patch, reboot, wait for reconnect,
+      verify final firmware and patch, save configuration.
 
     Raises RuntimeError if the device reports more than one unit (stacks are
-    not yet supported by this workflow) or if verification fails.
+    not yet supported by this workflow), if an uploaded file's MD5 doesn't
+    match the device-reported MD5, or if any other verification fails.
     """
     if not client.firmware_version:
         raise ValueError("firmware_version is required for upgrade operation")
@@ -198,6 +224,11 @@ def upgrade(client, *, return_result: bool = False):
             upload_files(client, files=[patch_path], remote_dir="flash:/")
             result.metadata["uploaded_patch_file"] = patch_path.name
 
+            result.metadata["md5_results"] = {
+                patch_path.name: verify_md5(client, patch_path)
+            }
+            result.metadata["md5_verified"] = True
+
             apply_patch(client, patch_path.name, client.patch_version)
             save_configuration(client)
 
@@ -219,10 +250,18 @@ def upgrade(client, *, return_result: bool = False):
         upload_files(client, files=files_to_upload, remote_dir="flash:/")
         result.metadata["uploaded_file"] = firmware_path.name
 
-        configure_next_startup(client, firmware_path.name)
+        md5_results = {firmware_path.name: verify_md5(client, firmware_path)}
 
         if operation_type == OPERATION_FIRMWARE_AND_PATCH:
             result.metadata["uploaded_patch_file"] = patch_path.name
+            md5_results[patch_path.name] = verify_md5(client, patch_path)
+
+        result.metadata["md5_results"] = md5_results
+        result.metadata["md5_verified"] = True
+
+        configure_next_startup(client, firmware_path.name)
+
+        if operation_type == OPERATION_FIRMWARE_AND_PATCH:
             configure_next_startup_patch(client, patch_path.name)
 
         client.logger.info(

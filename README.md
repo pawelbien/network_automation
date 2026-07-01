@@ -330,22 +330,33 @@ Behavior — `determine_operation_type()` compares current vs. target firmware
 and patch versions and picks one of four operations:
 
 - **NONE** — nothing newer: skip (`result.metadata["skipped"] = True`)
-- **FIRMWARE_ONLY** — uploads `firmware_file`, configures it as the next
-  startup image (`display startup` verification), reboots, waits for
-  reconnect (bounded by `reconnect_timeout`/`reconnect_delay`), verifies the
-  post-reboot firmware version
-- **PATCH_ONLY** — uploads `patch_file`, hot-applies it
+- **FIRMWARE_ONLY** — uploads `firmware_file`, verifies its MD5, configures
+  it as the next startup image (`display startup` verification), reboots,
+  waits for reconnect (bounded by `reconnect_timeout`/`reconnect_delay`),
+  verifies the post-reboot firmware version
+- **PATCH_ONLY** — uploads `patch_file`, verifies its MD5, hot-applies it
   (`patch load flash:/<file>.pat all run`, no reboot), verifies it's active
   via `display patch-information`, then saves the configuration (`save`)
-- **FIRMWARE_AND_PATCH** — uploads both files, configures next startup
-  firmware **and** patch, reboots, waits for reconnect, verifies both the
-  firmware version and the active patch, then saves the configuration
+- **FIRMWARE_AND_PATCH** — uploads both files, verifies both MD5s, configures
+  next startup firmware **and** patch, reboots, waits for reconnect, verifies
+  both the firmware version and the active patch, then saves the
+  configuration
+
+MD5 verification is mandatory for every uploaded file: the local MD5 is
+computed before upload (`hashlib.md5`, see `compute_local_md5` in
+`upload.py`) and compared against the device-reported MD5 from
+`display system file-md5 flash:/<file>` (parsed in `info.py`'s
+`get_file_md5`). A mismatch aborts the operation with a `RuntimeError`
+before any configuration/apply step runs. Results are recorded in
+`result.metadata["md5_results"]` (per-file `expected_md5`/`actual_md5`/
+`match`) and `result.metadata["md5_verified"]`. This check only applies to
+`upgrade()`'s own uploads — the generic `client.upload()` is unaffected.
 
 Not yet implemented (see `docs/architecture.md` and
 `engineering_handbook/tmp/huawei_vrp_update.txt` for the full target scope):
-MD5 verification of uploaded files, idempotency checks beyond version
-comparison, pre/post health checks, flash cleanup, automatic rollback,
-concurrency locking, forced downgrade, and multi-unit/stack upgrades.
+idempotency checks beyond version comparison, pre/post health checks, flash
+cleanup, automatic rollback, concurrency locking, forced downgrade, and
+multi-unit/stack upgrades.
 
 ---
 

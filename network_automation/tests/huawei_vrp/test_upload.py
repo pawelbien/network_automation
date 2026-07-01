@@ -1,7 +1,10 @@
 # network_automation/tests/huawei_vrp/test_upload.py
 
+import hashlib
+
 import pytest
 from pathlib import Path
+from network_automation.platforms.huawei_vrp.upload import compute_local_md5
 from network_automation.results import OperationResult
 
 
@@ -31,6 +34,28 @@ class FakeRemoteConnPre:
 class FakeConn:
     def __init__(self, sftp):
         self.remote_conn_pre = FakeRemoteConnPre(sftp)
+
+
+# -------------------------------------------------------
+# compute_local_md5
+# -------------------------------------------------------
+
+def test_compute_local_md5_matches_hashlib(tmp_path):
+    local_file = tmp_path / "AR650A_V300R024C00SPC200.cc"
+    local_file.write_bytes(b"firmware image contents" * 1000)
+
+    expected = hashlib.md5(local_file.read_bytes()).hexdigest()
+
+    assert compute_local_md5(local_file) == expected
+
+
+def test_compute_local_md5_differs_for_different_content(tmp_path):
+    file_a = tmp_path / "a.cc"
+    file_b = tmp_path / "b.cc"
+    file_a.write_bytes(b"content a")
+    file_b.write_bytes(b"content b")
+
+    assert compute_local_md5(file_a) != compute_local_md5(file_b)
 
 
 # -------------------------------------------------------

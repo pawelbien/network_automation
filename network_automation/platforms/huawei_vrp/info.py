@@ -185,6 +185,42 @@ def _parse_patch_information(output):
     }
 
 
+_MD5_HEX_RE = re.compile(r'(?<![0-9a-fA-F])([0-9a-fA-F]{32})(?![0-9a-fA-F])')
+
+
+def _parse_file_md5(output: str) -> str:
+    """
+    Parse 'display system file-md5 flash:/<file>' output.
+
+    The exact vendor wording around the hash varies, so this looks for a
+    bare 32-character hex token rather than anchoring on surrounding text.
+
+    Returns the MD5 hex digest, lowercased.
+    """
+    m = _MD5_HEX_RE.search(output)
+    if not m:
+        raise ValueError(
+            "Could not parse MD5 value from 'display system file-md5' "
+            f"output: {output!r}"
+        )
+
+    return m.group(1).lower()
+
+
+def get_file_md5(client, filename: str) -> str:
+    """
+    Read the device-computed MD5 of a file already present on flash.
+
+    Runs: display system file-md5 flash:/<filename>.
+
+    - no connect/disconnect
+    - only called from upgrade.py's MD5 verification step, so it never
+      affects the get_info() command sequence.
+    """
+    output = client.conn.send_command(f"display system file-md5 flash:/{filename}")
+    return _parse_file_md5(output)
+
+
 def get_patch_info(client):
     """
     Read the currently active patch version and state.
