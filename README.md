@@ -13,7 +13,7 @@ The library is designed to work consistently:
 Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
-- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, and a firmware-only upgrade (`upgrade`, single-unit devices); use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 
 ---
 
@@ -51,7 +51,7 @@ Not every operation is available on every platform.
 - Command execution (`run`)
 - File download (`download`) — retrieve files from device via SFTP
 - File upload (`upload`) — push local files to the device via SFTP
-- Firmware upgrade (`upgrade`) — firmware-only, single-unit devices (see below)
+- Firmware upgrade (`upgrade`) — firmware, patch, or both, single-unit devices (see below)
 
 ---
 
@@ -228,14 +228,14 @@ CLI-style scripts live in `examples/huawei_vrp/`:
 
 - `run_command.py` — SSH key auth, multiple commands, formatted output
 - `read_info.py` — collect and print device information (version, ESN, startup image) per unit
-- `upgrade.py` — firmware-only upgrade for single-unit devices (target version + local `.cc` file)
+- `upgrade.py` — firmware and/or patch upgrade for single-unit devices (target versions + local `.cc`/`.pat` files)
 
 ---
 
 ## Firmware Upgrade
 
 Firmware upgrade is implemented for **MikroTik RouterOS** and, in a reduced
-form, **Huawei VRP** (firmware-only, single-unit devices — see below).
+form, **Huawei VRP** (firmware and/or patch, single-unit devices — see below).
 
 Firmware upgrade requires **explicit configuration** of the delivery method.
 
@@ -299,10 +299,11 @@ Rules:
 
 ### Huawei VRP
 
-Huawei VRP upgrade is currently **firmware-only** and **single-unit only**
-(stacks are explicitly rejected, not silently mis-handled). Unlike MikroTik,
-Huawei `.cc` firmware filenames are vendor-arbitrary, so the local file must
-be passed explicitly via `firmware_file` — there is no `firmware_delivery`
+Huawei VRP upgrade is **single-unit only** (stacks are explicitly rejected,
+not silently mis-handled) and covers firmware, patch (`.pat`), or both,
+depending on the current vs. target versions. Unlike MikroTik, Huawei `.cc`/
+`.pat` filenames are vendor-arbitrary, so the local files must be passed
+explicitly via `firmware_file`/`patch_file` — there is no `firmware_delivery`
 choice, upload is always via SFTP.
 
 ```python
@@ -313,25 +314,38 @@ client = get_client(
     password="secret",
     firmware_version="V300R024C00SPC100",
     firmware_file="/opt/firmware/huawei/AR650A_V300R024C00SPC100.cc",
+    patch_version="SPH1b0",                                       # optional
+    patch_file="/opt/firmware/huawei/AR650A_V300R024SPH1b0.pat",   # optional
 )
 
 client.upgrade()
 ```
 
-Behavior:
+`firmware_version`/`firmware_file` are always required; `patch_version`/
+`patch_file` are optional but must be provided together. A patch-only
+maintenance run passes `firmware_version` equal to the device's current
+version (i.e. "stay on this firmware, only add this patch").
 
-- reads current firmware and skips the upgrade if it's already >= target
-- uploads `firmware_file` to `flash:/` via SFTP
-- configures it as the next startup image and verifies via `display startup`
-- reboots and waits (bounded by `reconnect_timeout`/`reconnect_delay`) for the
-  device to come back online
-- verifies the post-reboot firmware version matches `firmware_version`
+Behavior — `determine_operation_type()` compares current vs. target firmware
+and patch versions and picks one of four operations:
+
+- **NONE** — nothing newer: skip (`result.metadata["skipped"] = True`)
+- **FIRMWARE_ONLY** — uploads `firmware_file`, configures it as the next
+  startup image (`display startup` verification), reboots, waits for
+  reconnect (bounded by `reconnect_timeout`/`reconnect_delay`), verifies the
+  post-reboot firmware version
+- **PATCH_ONLY** — uploads `patch_file`, hot-applies it
+  (`patch load flash:/<file>.pat all run`, no reboot), verifies it's active
+  via `display patch-information`, then saves the configuration (`save`)
+- **FIRMWARE_AND_PATCH** — uploads both files, configures next startup
+  firmware **and** patch, reboots, waits for reconnect, verifies both the
+  firmware version and the active patch, then saves the configuration
 
 Not yet implemented (see `docs/architecture.md` and
 `engineering_handbook/tmp/huawei_vrp_update.txt` for the full target scope):
-patch upgrades, MD5 verification of the uploaded image, pre/post health
-checks, flash cleanup, automatic rollback, concurrency locking, forced
-downgrade, and multi-unit/stack upgrades.
+MD5 verification of uploaded files, idempotency checks beyond version
+comparison, pre/post health checks, flash cleanup, automatic rollback,
+concurrency locking, forced downgrade, and multi-unit/stack upgrades.
 
 ---
 

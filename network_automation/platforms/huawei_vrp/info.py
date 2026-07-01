@@ -159,6 +159,47 @@ def _parse_startup(output):
     return result
 
 
+def _parse_patch_information(output):
+    """
+    Parse 'display patch-information' output.
+
+    Returns dict:
+    {
+        "patch_version":      str | None,  # e.g. "ARV300R023SPH1b0"
+        "patch_package_name": str | None,  # e.g. "flash:/AR650A_V300R023SPH1b0.pat"
+        "state":              str | None,  # e.g. "Running"
+    }
+
+    All fields are None when no patch is currently installed — that's a
+    valid device state, not a parse error (unlike _parse_version's required
+    fields).
+    """
+    m_version = re.search(r'Patch version\s*:\s*(\S+)', output)
+    m_package = re.search(r'Patch package name\s*:\s*(\S+)', output)
+    m_state = re.search(r'The current state is\s*:\s*(\S+)', output)
+
+    return {
+        "patch_version": m_version.group(1) if m_version else None,
+        "patch_package_name": m_package.group(1) if m_package else None,
+        "state": m_state.group(1) if m_state else None,
+    }
+
+
+def get_patch_info(client):
+    """
+    Read the currently active patch version and state.
+
+    Runs: display patch-information.
+
+    - no connect/disconnect
+    - not part of get_info()/read_info() — only called from upgrade.py when
+      a patch operation is requested, so it never affects the get_info()
+      command sequence.
+    """
+    output = client.conn.send_command("display patch-information")
+    return _parse_patch_information(output)
+
+
 def get_info(client):
     """
     Collect device information from three VRP commands and return a unified unit list.

@@ -32,6 +32,8 @@ class HuaweiVRP(BaseClient):
         disabled_algorithms: dict | None = None,
         firmware_version: str | None = None,
         firmware_file: str | None = None,
+        patch_version: str | None = None,
+        patch_file: str | None = None,
         reconnect_timeout=300,
         reconnect_delay=10,
         *,
@@ -48,6 +50,13 @@ class HuaweiVRP(BaseClient):
                               Huawei firmware filenames are vendor-arbitrary
                               (unlike Mikrotik's templated names), so the
                               caller must provide the file explicitly.
+        patch_version       — expected active patch version string used by
+                              upgrade(); e.g. "SPH1b0". Optional — omit for a
+                              firmware-only upgrade. Must be provided together
+                              with patch_file.
+        patch_file          — local path to the `.pat` patch package to
+                              upload. Must be provided together with
+                              patch_version.
         reconnect_timeout   — seconds to wait for SSH after reboot before
                               raising TimeoutError (default 300).
         reconnect_delay     — polling interval in seconds during reconnect
@@ -75,6 +84,8 @@ class HuaweiVRP(BaseClient):
         self.username = username
         self.firmware_version = firmware_version
         self.firmware_file = firmware_file
+        self.patch_version = patch_version
+        self.patch_file = patch_file
         self.reconnect_timeout = reconnect_timeout
         self.reconnect_delay = reconnect_delay
 
@@ -211,7 +222,8 @@ class HuaweiVRP(BaseClient):
 
     def upgrade(self, *, return_result: bool = False):
         """
-        Run the firmware-only upgrade workflow (single-unit devices only).
+        Run the upgrade workflow (single-unit devices only): firmware, patch,
+        or both, depending on the current vs. target versions.
 
         See network_automation/platforms/huawei_vrp/upgrade.py for scope
         and limitations.

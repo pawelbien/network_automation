@@ -1,16 +1,17 @@
 # examples/huawei_vrp/upgrade.py
 
 """
-Example: firmware-only upgrade of a single-unit Huawei VRP device.
+Example: firmware and/or patch upgrade of a single-unit Huawei VRP device.
 
-Uploads a local .cc firmware image, configures it as the next startup
-image, reboots, and verifies the resulting firmware version. Stacks
-(more than one unit) are rejected, not silently mis-handled.
+Uploads the local .cc firmware image (and, optionally, a .pat patch
+package), configures next-boot startup accordingly, reboots if needed, and
+verifies the resulting firmware/patch. Stacks (more than one unit) are
+rejected, not silently mis-handled.
 
 Not covered by this workflow yet (see docs/architecture.md and
 engineering_handbook/tmp/huawei_vrp_update.txt for the full target scope):
-patch upgrades, MD5 verification, health checks, cleanup, rollback,
-concurrency locking, forced downgrade.
+MD5 verification, health checks, cleanup, rollback, concurrency locking,
+forced downgrade.
 """
 
 import os
@@ -26,17 +27,28 @@ def main():
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    # --- required arguments: target version and local firmware file ---
-    if len(sys.argv) != 3:
-        print("Usage: python upgrade.py <firmware_version> <firmware_file>")
+    # --- required: target firmware version + local .cc file ---
+    # --- optional: target patch version + local .pat file (both or neither) ---
+    if len(sys.argv) not in (3, 5):
+        print(
+            "Usage: python upgrade.py <firmware_version> <firmware_file> "
+            "[<patch_version> <patch_file>]"
+        )
         print(
             "Example: python upgrade.py V300R024C00SPC100 "
             "/opt/firmware/huawei/AR650A_V300R024C00SPC100.cc"
+        )
+        print(
+            "Example with patch: python upgrade.py V300R024C00SPC100 "
+            "/opt/firmware/huawei/AR650A_V300R024C00SPC100.cc "
+            "SPH1b0 /opt/firmware/huawei/AR650A_V300R024SPH1b0.pat"
         )
         sys.exit(1)
 
     firmware_version = sys.argv[1]
     firmware_file = sys.argv[2]
+    patch_version = sys.argv[3] if len(sys.argv) == 5 else None
+    patch_file = sys.argv[4] if len(sys.argv) == 5 else None
 
     # --- SSH key passphrase ---
     passphrase = os.environ.get("PASSPHRASE")
@@ -58,6 +70,8 @@ def main():
         },
         "firmware_version": firmware_version,
         "firmware_file": firmware_file,
+        "patch_version": patch_version,
+        "patch_file": patch_file,
     }
 
     client = get_client(**params)

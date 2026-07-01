@@ -7,7 +7,9 @@ from network_automation.platforms.huawei_vrp.info import (
     _parse_version,
     _parse_esn,
     _parse_startup,
+    _parse_patch_information,
     get_info,
+    get_patch_info,
     read_info,
 )
 from network_automation.results import OperationResult
@@ -144,6 +146,27 @@ SlaveBoard:
   Next startup patch package:                flash:/s6730-h_v200r024sph121.pat
 """
 
+DISPLAY_PATCH_INFORMATION_ROUTER = """\
+Patch version         :ARV300R023SPH1b0
+Patch package name    :flash:/AR650A_V300R023SPH1b0.pat
+The state of the patch state file is:Running
+The current state is:Running
+******************************************************************
+*              The patch information,as follows                  *
+******************************************************************
+Type        State         Count          Time(YYYY-MM-DD HH:MM:SS)
+------------------------------------------------------------------
+vrp         Running       256            2026-07-01 09:15:05+01:00
+exe         Running       2              2026-07-01 09:15:06+01:00
+soft        Running       26             2026-07-01 09:15:08+01:00
+driver      Running       1              2026-07-01 09:15:14+01:00
+cap         Running       31             2026-07-01 09:15:31+01:00
+"""
+
+DISPLAY_PATCH_INFORMATION_NONE = """\
+No patch exists.
+"""
+
 
 # ---------------------------------------------------------------------------
 # _parse_version
@@ -235,6 +258,42 @@ MainBoard:
     s = _parse_startup(output)["master"]
     assert s["startup_patch"] is None
     assert s["next_startup_patch"] is None
+
+
+# ---------------------------------------------------------------------------
+# _parse_patch_information
+# ---------------------------------------------------------------------------
+
+def test_parse_patch_information_present():
+    info = _parse_patch_information(DISPLAY_PATCH_INFORMATION_ROUTER)
+
+    assert info["patch_version"] == "ARV300R023SPH1b0"
+    assert info["patch_package_name"] == "flash:/AR650A_V300R023SPH1b0.pat"
+    assert info["state"] == "Running"
+
+
+def test_parse_patch_information_absent():
+    info = _parse_patch_information(DISPLAY_PATCH_INFORMATION_NONE)
+
+    assert info["patch_version"] is None
+    assert info["patch_package_name"] is None
+    assert info["state"] is None
+
+
+# ---------------------------------------------------------------------------
+# get_patch_info (uses fake conn, no connection lifecycle)
+# ---------------------------------------------------------------------------
+
+def test_get_patch_info(huawei_client):
+    conn = MagicMock()
+    conn.send_command.side_effect = [DISPLAY_PATCH_INFORMATION_ROUTER]
+    huawei_client.conn = conn
+
+    info = get_patch_info(huawei_client)
+
+    assert info["patch_version"] == "ARV300R023SPH1b0"
+    assert info["state"] == "Running"
+    conn.send_command.assert_called_once_with("display patch-information")
 
 
 # ---------------------------------------------------------------------------
