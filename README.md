@@ -13,7 +13,7 @@ The library is designed to work consistently:
 Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
-- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), and file upload (`upload`) via Netmiko/SFTP; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, and a firmware-only upgrade (`upgrade`, single-unit devices); use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 
 ---
 
@@ -51,6 +51,7 @@ Not every operation is available on every platform.
 - Command execution (`run`)
 - File download (`download`) — retrieve files from device via SFTP
 - File upload (`upload`) — push local files to the device via SFTP
+- Firmware upgrade (`upgrade`) — firmware-only, single-unit devices (see below)
 
 ---
 
@@ -232,7 +233,8 @@ CLI-style scripts live in `examples/huawei_vrp/`:
 
 ## Firmware Upgrade
 
-Firmware upgrade is implemented for **MikroTik RouterOS** only.
+Firmware upgrade is implemented for **MikroTik RouterOS** and, in a reduced
+form, **Huawei VRP** (firmware-only, single-unit devices — see below).
 
 Firmware upgrade requires **explicit configuration** of the delivery method.
 
@@ -293,6 +295,42 @@ Rules:
 - supported values: `download`, `upload`
 - `download` requires `repo_url`
 - `upload` requires `repo_path`
+
+### Huawei VRP
+
+Huawei VRP upgrade is currently **firmware-only** and **single-unit only**
+(stacks are explicitly rejected, not silently mis-handled). Unlike MikroTik,
+Huawei `.cc` firmware filenames are vendor-arbitrary, so the local file must
+be passed explicitly via `firmware_file` — there is no `firmware_delivery`
+choice, upload is always via SFTP.
+
+```python
+client = get_client(
+    device_type="huawei",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+    firmware_version="V300R024C00SPC100",
+    firmware_file="/opt/firmware/huawei/AR650A_V300R024C00SPC100.cc",
+)
+
+client.upgrade()
+```
+
+Behavior:
+
+- reads current firmware and skips the upgrade if it's already >= target
+- uploads `firmware_file` to `flash:/` via SFTP
+- configures it as the next startup image and verifies via `display startup`
+- reboots and waits (bounded by `reconnect_timeout`/`reconnect_delay`) for the
+  device to come back online
+- verifies the post-reboot firmware version matches `firmware_version`
+
+Not yet implemented (see `docs/architecture.md` and
+`engineering_handbook/tmp/huawei_vrp_update.txt` for the full target scope):
+patch upgrades, MD5 verification of the uploaded image, pre/post health
+checks, flash cleanup, automatic rollback, concurrency locking, forced
+downgrade, and multi-unit/stack upgrades.
 
 ---
 

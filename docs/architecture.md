@@ -214,7 +214,7 @@ Characteristics:
 
 Examples:
 
-- `upgrade` (RouterOS)
+- `upgrade` (RouterOS, Huawei VRP)
 - `bootloader_upgrade` (RouterBOARD firmware)
 - `run_backup`
 - `read_info`
@@ -440,7 +440,9 @@ tests/
     ├── test_download.py         # ← download.py
     ├── test_info.py             # ← info.py
     ├── test_run.py              # ← run.py
-    └── test_upload.py           # ← upload.py
+    ├── test_upload.py           # ← upload.py
+    ├── test_version.py          # ← version.py
+    └── test_upgrade.py          # ← upgrade.py
 ```
 
 When adding a new module `foo.py`, the corresponding test file is `test_foo.py`.
