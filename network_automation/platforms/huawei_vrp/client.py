@@ -32,6 +32,7 @@ class HuaweiVRP(BaseClient):
         port=22,
         connect_retries=2,
         connect_delay=2,
+        keepalive: int = 30,
         disabled_algorithms: dict | None = None,
         firmware_version: str | None = None,
         firmware_file: str | None = None,
@@ -53,6 +54,17 @@ class HuaweiVRP(BaseClient):
         context: ExecutionContext | None = None,
     ):
         """
+        keepalive           — seconds between SSH-level keepalive packets
+                              (default 30; 0 disables). Some VRP operations
+                              (e.g. cleanup_flash()'s "startup system-software
+                              ... backup" re-pointing step) block silently
+                              for several minutes with zero traffic on the
+                              wire; without keepalives, a stateful firewall/
+                              NAT sitting between here and the device can
+                              treat that as an idle connection and reset it
+                              mid-operation — verified against a real
+                              "Connection reset by peer" during that exact
+                              step on a live device.
         disabled_algorithms — passed directly to Paramiko; use to re-enable
                               legacy algorithms on older Huawei devices that
                               don't support modern SSH key exchange or ciphers.
@@ -135,6 +147,7 @@ class HuaweiVRP(BaseClient):
             "passphrase": passphrase,
             "use_keys": use_keys,
             "port": port,
+            "keepalive": keepalive,
             "disabled_algorithms": disabled_algorithms,
         }
 

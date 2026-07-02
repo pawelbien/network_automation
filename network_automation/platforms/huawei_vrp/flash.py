@@ -117,6 +117,11 @@ def cleanup_flash(
 
     if backup_image_name and backup_image_name in candidates:
         command = f"startup system-software {startup_image_name} backup"
+        client.logger.info(
+            "Re-pointing backup image to free %s — this can take several "
+            "minutes with no output; this is expected, not a hang.",
+            backup_image_name,
+        )
         debug_log(client, "send_command: %s", command)
         ack = client.conn.send_command(command, read_timeout=300)
         debug_log(client, "send_command response: %s", ack)
