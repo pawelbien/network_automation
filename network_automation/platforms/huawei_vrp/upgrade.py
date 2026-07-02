@@ -18,6 +18,7 @@ from pathlib import Path
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.lock import device_lock
 from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, get_file_md5, _parse_startup
 from network_automation.platforms.huawei_vrp.upload import upload_files, compute_local_md5
 from network_automation.platforms.huawei_vrp.version import (
@@ -173,147 +174,154 @@ def upgrade(client, *, return_result: bool = False):
     Raises RuntimeError if the device reports more than one unit (stacks are
     not yet supported by this workflow), if an uploaded file's MD5 doesn't
     match the device-reported MD5, or if any other verification fails.
+
+    Acquires an exclusive, host-scoped lock (see lock.py) before doing
+    anything else — including before validating arguments — so a second
+    concurrent upgrade() against the same device aborts immediately with
+    DeviceBusyError instead of racing this one.
     """
-    if not client.firmware_version:
-        raise ValueError("firmware_version is required for upgrade operation")
-    if not client.firmware_file:
-        raise ValueError("firmware_file is required for upgrade operation")
-    if bool(client.patch_version) != bool(client.patch_file):
-        raise ValueError(
-            "patch_version and patch_file must be provided together"
-        )
-
-    result = OperationResult(
-        success=True,
-        operation="upgrade",
-        metadata={
-            "target_firmware": client.firmware_version,
-            "target_patch": client.patch_version,
-        },
-    )
-
-    result.mark_started()
-
-    client.connect()
-    try:
-        info = get_info(client)
-        units = info["units"]
-
-        if len(units) != 1:
-            raise RuntimeError(
-                "upgrade() only supports single-unit devices; found "
-                f"{len(units)} units. Stack/multi-unit upgrade is not yet "
-                "implemented."
+    with device_lock(client):
+        if not client.firmware_version:
+            raise ValueError("firmware_version is required for upgrade operation")
+        if not client.firmware_file:
+            raise ValueError("firmware_file is required for upgrade operation")
+        if bool(client.patch_version) != bool(client.patch_file):
+            raise ValueError(
+                "patch_version and patch_file must be provided together"
             )
 
-        current_version = units[0]["software_version"]
-        result.metadata["current_firmware"] = current_version
-
-        # Only read patch-information when a patch operation was requested,
-        # so upgrade() issues no extra send_command() call otherwise.
-        current_patch = None
-        if client.patch_version:
-            current_patch = get_patch_info(client)["patch_version"]
-        result.metadata["current_patch"] = current_patch
-
-        operation_type = determine_operation_type(
-            current_version, client.firmware_version, current_patch, client.patch_version
+        result = OperationResult(
+            success=True,
+            operation="upgrade",
+            metadata={
+                "target_firmware": client.firmware_version,
+                "target_patch": client.patch_version,
+                "lock_acquired": True,
+            },
         )
-        result.metadata["operation_type"] = operation_type
 
-        if operation_type == OPERATION_NONE:
-            msg = (
-                f"Skipping upgrade: current firmware {current_version} / "
-                f"patch {current_patch} already >= target"
+        result.mark_started()
+
+        client.connect()
+        try:
+            info = get_info(client)
+            units = info["units"]
+
+            if len(units) != 1:
+                raise RuntimeError(
+                    "upgrade() only supports single-unit devices; found "
+                    f"{len(units)} units. Stack/multi-unit upgrade is not yet "
+                    "implemented."
+                )
+
+            current_version = units[0]["software_version"]
+            result.metadata["current_firmware"] = current_version
+
+            # Only read patch-information when a patch operation was requested,
+            # so upgrade() issues no extra send_command() call otherwise.
+            current_patch = None
+            if client.patch_version:
+                current_patch = get_patch_info(client)["patch_version"]
+            result.metadata["current_patch"] = current_patch
+
+            operation_type = determine_operation_type(
+                current_version, client.firmware_version, current_patch, client.patch_version
             )
-            client.logger.info(msg)
+            result.metadata["operation_type"] = operation_type
 
-            result.message = msg
-            result.metadata["skipped"] = True
+            if operation_type == OPERATION_NONE:
+                msg = (
+                    f"Skipping upgrade: current firmware {current_version} / "
+                    f"patch {current_patch} already >= target"
+                )
+                client.logger.info(msg)
 
-            return result if return_result else None
+                result.message = msg
+                result.metadata["skipped"] = True
 
-        if operation_type == OPERATION_PATCH_ONLY:
-            patch_path = Path(client.patch_file)
-            upload_files(client, files=[patch_path], remote_dir="flash:/")
-            result.metadata["uploaded_patch_file"] = patch_path.name
+                return result if return_result else None
 
-            result.metadata["md5_results"] = {
-                patch_path.name: verify_md5(client, patch_path)
-            }
+            if operation_type == OPERATION_PATCH_ONLY:
+                patch_path = Path(client.patch_file)
+                upload_files(client, files=[patch_path], remote_dir="flash:/")
+                result.metadata["uploaded_patch_file"] = patch_path.name
+
+                result.metadata["md5_results"] = {
+                    patch_path.name: verify_md5(client, patch_path)
+                }
+                result.metadata["md5_verified"] = True
+
+                apply_patch(client, patch_path.name, client.patch_version)
+                save_configuration(client)
+
+                msg = f"Patch applied successfully: {client.patch_version}"
+                client.logger.info(msg)
+                result.message = msg
+                result.metadata["new_patch"] = client.patch_version
+
+                return result if return_result else None
+
+            # FIRMWARE_ONLY or FIRMWARE_AND_PATCH: upload, configure, reboot.
+            firmware_path = Path(client.firmware_file)
+            files_to_upload = [firmware_path]
+
+            if operation_type == OPERATION_FIRMWARE_AND_PATCH:
+                patch_path = Path(client.patch_file)
+                files_to_upload.append(patch_path)
+
+            upload_files(client, files=files_to_upload, remote_dir="flash:/")
+            result.metadata["uploaded_file"] = firmware_path.name
+
+            md5_results = {firmware_path.name: verify_md5(client, firmware_path)}
+
+            if operation_type == OPERATION_FIRMWARE_AND_PATCH:
+                result.metadata["uploaded_patch_file"] = patch_path.name
+                md5_results[patch_path.name] = verify_md5(client, patch_path)
+
+            result.metadata["md5_results"] = md5_results
             result.metadata["md5_verified"] = True
 
-            apply_patch(client, patch_path.name, client.patch_version)
-            save_configuration(client)
+            configure_next_startup(client, firmware_path.name)
 
-            msg = f"Patch applied successfully: {client.patch_version}"
+            if operation_type == OPERATION_FIRMWARE_AND_PATCH:
+                configure_next_startup_patch(client, patch_path.name)
+
+            client.logger.info(
+                "Upgrade: %s -> %s — reboot required",
+                current_version,
+                client.firmware_version,
+            )
+
+            client.reboot()
+            client.conn = client.wait_for_reconnect()
+            result.metadata["rebooted"] = True
+
+            info_after = get_info(client)
+            final_version = info_after["units"][0]["software_version"]
+            result.metadata["new_firmware"] = final_version
+
+            if final_version != client.firmware_version:
+                raise RuntimeError(
+                    f"Upgrade version mismatch: expected "
+                    f"{client.firmware_version}, got {final_version}"
+                )
+
+            if operation_type == OPERATION_FIRMWARE_AND_PATCH:
+                _verify_patch_active(client, client.patch_version)
+                result.metadata["new_patch"] = client.patch_version
+                save_configuration(client)
+
+            msg = f"Upgrade completed successfully: {final_version}"
             client.logger.info(msg)
             result.message = msg
-            result.metadata["new_patch"] = client.patch_version
 
             return result if return_result else None
 
-        # FIRMWARE_ONLY or FIRMWARE_AND_PATCH: upload, configure, reboot.
-        firmware_path = Path(client.firmware_file)
-        files_to_upload = [firmware_path]
+        except Exception as exc:
+            result.success = False
+            result.errors.append(str(exc))
+            raise
 
-        if operation_type == OPERATION_FIRMWARE_AND_PATCH:
-            patch_path = Path(client.patch_file)
-            files_to_upload.append(patch_path)
-
-        upload_files(client, files=files_to_upload, remote_dir="flash:/")
-        result.metadata["uploaded_file"] = firmware_path.name
-
-        md5_results = {firmware_path.name: verify_md5(client, firmware_path)}
-
-        if operation_type == OPERATION_FIRMWARE_AND_PATCH:
-            result.metadata["uploaded_patch_file"] = patch_path.name
-            md5_results[patch_path.name] = verify_md5(client, patch_path)
-
-        result.metadata["md5_results"] = md5_results
-        result.metadata["md5_verified"] = True
-
-        configure_next_startup(client, firmware_path.name)
-
-        if operation_type == OPERATION_FIRMWARE_AND_PATCH:
-            configure_next_startup_patch(client, patch_path.name)
-
-        client.logger.info(
-            "Upgrade: %s -> %s — reboot required",
-            current_version,
-            client.firmware_version,
-        )
-
-        client.reboot()
-        client.conn = client.wait_for_reconnect()
-        result.metadata["rebooted"] = True
-
-        info_after = get_info(client)
-        final_version = info_after["units"][0]["software_version"]
-        result.metadata["new_firmware"] = final_version
-
-        if final_version != client.firmware_version:
-            raise RuntimeError(
-                f"Upgrade version mismatch: expected "
-                f"{client.firmware_version}, got {final_version}"
-            )
-
-        if operation_type == OPERATION_FIRMWARE_AND_PATCH:
-            _verify_patch_active(client, client.patch_version)
-            result.metadata["new_patch"] = client.patch_version
-            save_configuration(client)
-
-        msg = f"Upgrade completed successfully: {final_version}"
-        client.logger.info(msg)
-        result.message = msg
-
-        return result if return_result else None
-
-    except Exception as exc:
-        result.success = False
-        result.errors.append(str(exc))
-        raise
-
-    finally:
-        result.mark_finished()
-        client.disconnect()
+        finally:
+            result.mark_finished()
+            client.disconnect()

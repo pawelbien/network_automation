@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from network_automation.platforms.huawei_vrp.cli_errors import CLIError
+from network_automation.platforms.huawei_vrp.lock import DeviceBusyError, _lock_path
 from network_automation.platforms.huawei_vrp.upgrade import (
     configure_next_startup,
     configure_next_startup_patch,
@@ -412,6 +413,31 @@ def test_upgrade_returns_result(monkeypatch, huawei_client):
     assert isinstance(result, OperationResult)
     assert result.success is True
     assert result.operation == "upgrade"
+    assert result.metadata["lock_acquired"] is True
+
+
+# ---------- concurrency lock ----------
+
+def test_upgrade_raises_device_busy_and_never_connects(mocker, huawei_client, tmp_path):
+    import json
+    import os
+    import time
+
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.lock_dir = str(tmp_path)
+
+    path = _lock_path(huawei_client)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"pid": os.getpid(), "acquired_at": time.time()}, f)
+
+    mock_connect = mocker.patch.object(huawei_client, "connect")
+
+    with pytest.raises(DeviceBusyError):
+        huawei_client.upgrade()
+
+    mock_connect.assert_not_called()
 
 
 # ---------- upgrade workflow: patch-only / firmware+patch / none ----------

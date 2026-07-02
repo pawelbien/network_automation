@@ -1,5 +1,7 @@
 # network_automation/platforms/huawei_vrp/client.py
 
+import os
+import tempfile
 import time
 
 from netmiko import ConnectHandler
@@ -36,6 +38,8 @@ class HuaweiVRP(BaseClient):
         patch_file: str | None = None,
         reconnect_timeout=300,
         reconnect_delay=10,
+        lock_timeout=3600,
+        lock_dir: str | None = None,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -61,6 +65,17 @@ class HuaweiVRP(BaseClient):
                               raising TimeoutError (default 300).
         reconnect_delay     — polling interval in seconds during reconnect
                               wait (default 10).
+        lock_timeout        — seconds a device lock must sit unrenewed with
+                              a dead holder process before upgrade() may
+                              reclaim it as stale (default 3600). A live
+                              holder's lock is never reclaimed regardless of
+                              age.
+        lock_dir            — directory for device lock files, keyed by
+                              host; one lock file per device, so only one
+                              upgrade() can run against it at a time.
+                              Defaults to a fixed subdirectory of the
+                              system temp dir, shared by all HuaweiVRP
+                              instances on this machine.
         """
         super().__init__(
             context=context,
@@ -88,6 +103,10 @@ class HuaweiVRP(BaseClient):
         self.patch_file = patch_file
         self.reconnect_timeout = reconnect_timeout
         self.reconnect_delay = reconnect_delay
+        self.lock_timeout = lock_timeout
+        self.lock_dir = lock_dir or os.path.join(
+            tempfile.gettempdir(), "network_automation_huawei_vrp_locks"
+        )
 
     def get_info(self, *, return_result: bool = False):
         """Read device info (version, ESN, startup config) for all stack units."""
