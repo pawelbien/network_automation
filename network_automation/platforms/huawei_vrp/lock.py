@@ -5,13 +5,11 @@ Huawei VRP concurrency lock.
 
 Before any state-changing operation (currently: upgrade()), the library
 must acquire an exclusive lock scoped to the device, so two such
-operations can never run concurrently against the same device — see
-engineering_handbook/tmp/huawei_vrp_update.txt, "Concurrency control".
+operations can never run concurrently against the same device.
 
 This is a file-based lock, keyed by host, stored under a configurable
 directory (HuaweiVRP.lock_dir). It only protects against concurrent
-operations launched from the same machine (matches the spec's own
-"for example a lock file" framing, not a distributed lock).
+operations launched from the same machine, not a distributed lock.
 """
 
 import contextlib

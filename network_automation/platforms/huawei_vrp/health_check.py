@@ -2,9 +2,7 @@
 
 """
 Huawei VRP device health: pre-upgrade baseline check and post-reboot
-baseline comparisons — see
-engineering_handbook/tmp/huawei_vrp_update.txt, "Pre-upgrade health check"
-and "Post-reboot validation".
+baseline comparisons.
 
 Bundles both the raw display-command getters/parsers (cpu-usage, memory,
 alarm active, interface brief, ip routing-table) and the policy layer

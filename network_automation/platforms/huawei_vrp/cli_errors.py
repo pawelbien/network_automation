@@ -5,9 +5,7 @@ Huawei VRP cross-cutting CLI-error validation.
 
 Every command executed against the device must be checked for CLI-level
 errors before its output is used, regardless of which phase it belongs to
-(discovery, validation, transfer, configuration, post-reboot) — see
-engineering_handbook/tmp/huawei_vrp_update.txt, "Command output validation
-(cross-cutting rule)".
+(discovery, validation, transfer, configuration, post-reboot).
 
 This is a Tier-1 style module: no connection lifecycle, pure functions that
 take a command + its already-collected output and raise on error. It has no

@@ -1,9 +1,7 @@
 # network_automation/platforms/huawei_vrp/flash.py
 
 """
-Huawei VRP flash space calculation and cleanup — see
-engineering_handbook/tmp/huawei_vrp_update.txt, "Flash space calculation"
-and "Cleanup phase".
+Huawei VRP flash space calculation and cleanup.
 
 Runs before the file transfer phase: computes required_space for the
 target firmware/patch, and if free flash space is insufficient, deletes

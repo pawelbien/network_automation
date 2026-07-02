@@ -3,8 +3,7 @@
 """
 Huawei VRP idempotency checks: before each state-changing step, check
 whether it has already been completed, so re-running upgrade() after an
-interruption is safe — see engineering_handbook/tmp/huawei_vrp_update.txt,
-"Idempotency checks".
+interruption is safe.
 
 Each check is a Tier-1 style helper (no connect/disconnect) called from
 upgrade.py immediately before the step it guards. Every skip must be

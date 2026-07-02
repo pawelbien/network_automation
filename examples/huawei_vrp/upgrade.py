@@ -8,10 +8,9 @@ package), configures next-boot startup accordingly, reboots if needed, and
 verifies the resulting firmware/patch. Stacks (more than one unit) are
 rejected, not silently mis-handled.
 
-Not covered by this workflow yet (see docs/architecture.md and
-engineering_handbook/tmp/huawei_vrp_update.txt for the full target scope):
-MD5 verification, health checks, cleanup, rollback, concurrency locking,
-forced downgrade.
+Not covered by this workflow yet (see docs/architecture.md for details):
+automatic rollback after a failed post-reboot validation, and
+multi-unit/stack upgrades.
 """
 
 import os

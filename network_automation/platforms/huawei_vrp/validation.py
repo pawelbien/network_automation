@@ -3,8 +3,7 @@
 """
 Huawei VRP pre-upload input validation: firmware/patch filename format,
 firmware-hardware compatibility, patch-firmware release compatibility, and
-forced-downgrade warnings — see engineering_handbook/tmp/huawei_vrp_update.txt,
-"Input validation" and "Forced downgrade".
+forced-downgrade warnings.
 
 Runs after determine_operation_type() has decided an operation is needed,
 and before any upload. Pure checks against filenames/strings already known

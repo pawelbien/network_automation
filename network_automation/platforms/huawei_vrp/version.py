@@ -2,8 +2,7 @@
 
 """
 Huawei VRP firmware and patch version parsing, comparison, and the
-operation-type decision matrix — see
-engineering_handbook/tmp/huawei_vrp_update.txt for the target algorithm.
+operation-type decision matrix.
 """
 
 import re

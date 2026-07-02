@@ -8,8 +8,7 @@ from network_automation.platforms.huawei_vrp.info import get_flash_info
 
 # Fixed pause between upload_with_retry() attempts. Not user-configurable —
 # only the attempt count (upload_retries) and per-attempt transfer timeout
-# (upload_timeout) are exposed on HuaweiVRP, per
-# engineering_handbook/tmp/huawei_vrp_update.txt's "File transfer phase".
+# (upload_timeout) are exposed on HuaweiVRP.
 _RETRY_DELAY_SECONDS = 1
 
 
@@ -73,11 +72,9 @@ def upload_files(
 def verify_remote_file(client, *, filename: str, expected_size: int) -> dict:
     """
     Verify that `filename` exists on flash and its reported size matches
-    expected_size (dir listing) — the "after upload: verify remote file
-    exists, verify remote file size" step from
-    engineering_handbook/tmp/huawei_vrp_update.txt, run BEFORE MD5. MD5
-    verification is a separate, mandatory step (upgrade.verify_md5()) that
-    runs after this one — this check does not compute or compare hashes.
+    expected_size (dir listing) — run BEFORE MD5. MD5 verification is a
+    separate, mandatory step (upgrade.verify_md5()) that runs after this
+    one — this check does not compute or compare hashes.
 
     - no connect/disconnect
     - raises RuntimeError if the file is missing or its size mismatches
@@ -121,9 +118,8 @@ def upload_with_retry(
     """
     Upload `files` and verify each landed intact (exists + expected size),
     retrying the whole upload+verify unit up to `retries` times before
-    giving up — see engineering_handbook/tmp/huawei_vrp_update.txt, "File
-    transfer phase": "Transfer must respect a configurable timeout and a
-    configurable number of retry attempts before failing the operation."
+    giving up. Transfer respects a configurable timeout and a configurable
+    number of retry attempts before failing the operation.
 
     Deliberately does not delegate to upload_files() — that helper stays a
     single, unbounded-timeout SFTP put used elsewhere (client.upload()),

@@ -352,11 +352,9 @@ before any configuration/apply step runs. Results are recorded in
 `match`) and `result.metadata["md5_verified"]`. This check only applies to
 `upgrade()`'s own uploads — the generic `client.upload()` is unaffected.
 
-Not yet implemented (see `docs/architecture.md` and
-`engineering_handbook/tmp/huawei_vrp_update.txt` for the full target scope):
-idempotency checks beyond version comparison, pre/post health checks, flash
-cleanup, automatic rollback, concurrency locking, forced downgrade, and
-multi-unit/stack upgrades.
+Not yet implemented (see `docs/architecture.md` for details): automatic
+rollback after a failed post-reboot validation, and multi-unit/stack
+upgrades.
 
 ---
 

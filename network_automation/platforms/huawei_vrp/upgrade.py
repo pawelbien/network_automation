@@ -3,10 +3,9 @@
 """
 Huawei VRP upgrade workflow (single-unit): firmware, patch, or both.
 
-Scope of this implementation — see engineering_handbook/tmp/huawei_vrp_update.txt
-for the full target algorithm: version comparison, firmware/patch upload,
-MD5 verification, startup configuration, hot patch apply, reboot, and
-post-reboot verification.
+Covers version comparison, firmware/patch upload, MD5 verification,
+startup configuration, hot patch apply, reboot, and post-reboot
+verification.
 
 Deliberately out of scope for this pass (tracked as follow-up work):
 automatic rollback and multi-unit/stack upgrades.
@@ -101,7 +100,7 @@ def verify_md5(client, path: Path):
 
     - no connect/disconnect
     - raises RuntimeError on mismatch — MD5 verification is mandatory for
-      every uploaded file, per engineering_handbook/tmp/huawei_vrp_update.txt
+      every uploaded file
     """
     expected_md5 = compute_local_md5(path)
     actual_md5 = get_file_md5(client, path.name)

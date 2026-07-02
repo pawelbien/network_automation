@@ -1674,12 +1674,10 @@ def test_upgrade_records_reboot_duration_seconds(mocker, huawei_client, fake_con
 def test_upgrade_full_report_shape_contains_all_expected_fields(mocker, huawei_client, fake_conn):
     """
     Integration-style check that a full FIRMWARE_AND_PATCH run populates
-    every report field required by "Report contents" in
-    engineering_handbook/tmp/huawei_vrp_update.txt, mapped onto existing
-    metadata keys (see ANALYSIS.md's Finalization mapping table) - except
-    "signature verification result" and "rollback performed", which are
-    deliberately not implemented (see ANALYSIS.md, "Obszary świadomie
-    niezaimplementowane") and so are correctly absent here.
+    every expected report field, except "signature verification result"
+    and "rollback performed", which are deliberately not implemented (see
+    ANALYSIS.md, "Obszary świadomie niezaimplementowane") and so are
+    correctly absent here.
     """
     huawei_client.firmware_version = "V300R024C00SPC200"
     huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
