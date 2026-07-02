@@ -321,6 +321,18 @@ client = get_client(
 client.upgrade()
 ```
 
+Additional constructor parameters (all optional, sensible defaults):
+connection retry/reconnect timing (`connect_retries`, `connect_delay`,
+`reconnect_timeout`, `reconnect_delay`), the per-device concurrency lock
+(`lock_timeout`, `lock_dir`), forced downgrade (`force_downgrade`,
+`i_understand_downgrade_risk`), firmware/patch upload retry and timeout
+(`upload_timeout`, `upload_retries`), pre-upgrade health checks
+(`health_check_mode`, `health_check_cpu_threshold`,
+`health_check_memory_threshold`, `health_check_max_down_interfaces`), and
+execution diagnostics via `get_client()` (`dry_run`, `debug_log`) — see
+`examples/huawei_vrp/upgrade.py` for a fully annotated example showing
+every parameter.
+
 `firmware_version`/`firmware_file` are always required; `patch_version`/
 `patch_file` are optional but must be provided together. A patch-only
 maintenance run passes `firmware_version` equal to the device's current
