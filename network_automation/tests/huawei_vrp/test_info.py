@@ -210,6 +210,17 @@ def test_parse_version_router():
     assert m["model"] == "AR651"
     assert m["vrp_version"] == "5.170"
     assert m["software_version"] == "V300R024C00SPC100"
+    assert m["uptime_raw"] == "2 weeks, 1 day, 12 hours, 21 minutes"
+
+
+def test_parse_version_uptime_absent_is_none():
+    output = (
+        "VRP (R) software, Version 5.170 (AR650 V300R024C00SPC100)\n"
+        "Huawei AR651 Router uptime is 2 weeks\n"
+        "MPU 0(Master) :\n"
+    )
+    units = _parse_version(output)
+    assert units[0]["uptime_raw"] is None
 
 
 def test_parse_version_stack():
@@ -223,6 +234,7 @@ def test_parse_version_stack():
     assert master["model"] == "S6730-H24X6C"
     assert master["vrp_version"] == "5.170"
     assert master["software_version"] == "V200R024C00SPC500"
+    assert master["uptime_raw"] == "26 weeks, 1 day, 12 hours, 32 minutes"
 
     assert standby["id"] == 2
     assert standby["role"] == "standby"

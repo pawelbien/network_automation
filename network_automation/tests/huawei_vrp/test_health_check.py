@@ -9,12 +9,17 @@ from network_automation.platforms.huawei_vrp.health_check import (
     _parse_memory,
     _parse_alarm_active,
     _parse_interface_brief,
+    _parse_ip_routing_table,
     get_cpu_usage,
     get_memory,
     get_alarm_active,
     get_interface_brief,
+    get_ip_routing_table,
     collect_health_snapshot,
     evaluate_health,
+    compare_interfaces_to_baseline,
+    compare_health_to_baseline,
+    validate_routing_restored,
     run_pre_upgrade_health_check,
 )
 
@@ -262,3 +267,120 @@ def test_run_pre_upgrade_health_check_warn_mode_does_not_raise(mocker):
     assert evaluation["passed"] is False
     assert result.warnings
     client.logger.warning.assert_called_once()
+
+
+# ---------- display ip routing-table (Faza 11) ----------
+
+_DISPLAY_ROUTING_TABLE_WITH_ROUTES = (
+    "Route Flags: R - relay, D - download to fib\n"
+    "------------------------------------------------------------------------------\n"
+    "Routing Tables: Public\n"
+    "         Destinations : 2        Routes : 2\n\n"
+    "Destination/Mask    Proto  Pre  Cost        Flags NextHop         Interface\n\n"
+    "        0.0.0.0/0    Static  60   0            RD 192.168.1.1     GigabitEthernet0/0/0\n"
+    "    192.168.1.0/24   Direct  0    0             D  192.168.1.2     GigabitEthernet0/0/0\n"
+)
+_DISPLAY_ROUTING_TABLE_EMPTY = (
+    "Routing Tables: Public\n"
+    "         Destinations : 0        Routes : 0\n"
+)
+
+
+def test_parse_ip_routing_table_with_routes():
+    result = _parse_ip_routing_table(_DISPLAY_ROUTING_TABLE_WITH_ROUTES)
+    assert result == {"route_count": 2, "has_default_route": True}
+
+
+def test_parse_ip_routing_table_empty():
+    result = _parse_ip_routing_table(_DISPLAY_ROUTING_TABLE_EMPTY)
+    assert result == {"route_count": 0, "has_default_route": False}
+
+
+def test_parse_ip_routing_table_unparseable_raises():
+    with pytest.raises(ValueError):
+        _parse_ip_routing_table("garbage output")
+
+
+def test_get_ip_routing_table_success():
+    client = MagicMock()
+    client.conn.send_command.return_value = _DISPLAY_ROUTING_TABLE_WITH_ROUTES
+    assert get_ip_routing_table(client) == {"route_count": 2, "has_default_route": True}
+
+
+# ---------- validate_routing_restored (Faza 11) ----------
+
+def test_validate_routing_restored_with_routes():
+    assert validate_routing_restored({"route_count": 2, "has_default_route": True}) == {"passed": True}
+
+
+def test_validate_routing_restored_empty_table():
+    assert validate_routing_restored({"route_count": 0, "has_default_route": False}) == {"passed": False}
+
+
+# ---------- compare_interfaces_to_baseline (Faza 11) ----------
+
+def test_compare_interfaces_no_new_failures():
+    baseline = {"interfaces": {"Gi0/0/0": {"physical_status": "up", "protocol_status": "up"}}}
+    current = {"interfaces": {"Gi0/0/0": {"physical_status": "up", "protocol_status": "up"}}}
+    assert compare_interfaces_to_baseline(baseline, current) == {"new_failures": [], "passed": True}
+
+
+def test_compare_interfaces_flips_up_to_down_is_new_failure():
+    baseline = {"interfaces": {"Gi0/0/0": {"physical_status": "up", "protocol_status": "up"}}}
+    current = {"interfaces": {"Gi0/0/0": {"physical_status": "down", "protocol_status": "down"}}}
+    result = compare_interfaces_to_baseline(baseline, current)
+    assert result == {"new_failures": ["Gi0/0/0"], "passed": False}
+
+
+def test_compare_interfaces_new_interface_after_upgrade_ignored():
+    baseline = {"interfaces": {"Gi0/0/0": {"physical_status": "up", "protocol_status": "up"}}}
+    current = {
+        "interfaces": {
+            "Gi0/0/0": {"physical_status": "up", "protocol_status": "up"},
+            "Gi0/0/1": {"physical_status": "down", "protocol_status": "down"},
+        }
+    }
+    assert compare_interfaces_to_baseline(baseline, current) == {"new_failures": [], "passed": True}
+
+
+def test_compare_interfaces_missing_from_current_is_new_failure():
+    baseline = {"interfaces": {"Gi0/0/0": {"physical_status": "up", "protocol_status": "up"}}}
+    current = {"interfaces": {}}
+    assert compare_interfaces_to_baseline(baseline, current) == {"new_failures": ["Gi0/0/0"], "passed": False}
+
+
+def test_compare_interfaces_already_down_in_baseline_not_a_new_failure():
+    baseline = {"interfaces": {"Gi0/0/0": {"physical_status": "down", "protocol_status": "down"}}}
+    current = {"interfaces": {"Gi0/0/0": {"physical_status": "down", "protocol_status": "down"}}}
+    assert compare_interfaces_to_baseline(baseline, current) == {"new_failures": [], "passed": True}
+
+
+# ---------- compare_health_to_baseline (Faza 11) ----------
+
+def test_compare_health_no_new_alarms():
+    baseline = {"alarms": []}
+    current = {"alarms": []}
+    assert compare_health_to_baseline(baseline, current) == {"new_alarms": [], "passed": True}
+
+
+def test_compare_health_new_critical_alarm_fails():
+    baseline = {"alarms": []}
+    current = {"alarms": [{"severity": "critical", "name": "BoardFault", "raw": "x"}]}
+    result = compare_health_to_baseline(baseline, current)
+    assert result["passed"] is False
+    assert result["new_alarms"] == [{"severity": "critical", "name": "BoardFault", "raw": "x"}]
+
+
+def test_compare_health_new_minor_alarm_does_not_fail():
+    baseline = {"alarms": []}
+    current = {"alarms": [{"severity": "minor", "name": "Cosmetic", "raw": "x"}]}
+    result = compare_health_to_baseline(baseline, current)
+    assert result["passed"] is True
+
+
+def test_compare_health_alarm_present_in_both_is_not_new():
+    alarm = {"severity": "critical", "name": "BoardFault", "raw": "x"}
+    baseline = {"alarms": [alarm]}
+    current = {"alarms": [alarm]}
+    result = compare_health_to_baseline(baseline, current)
+    assert result == {"new_alarms": [], "passed": True}

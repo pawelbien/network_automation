@@ -17,7 +17,14 @@ from pathlib import Path
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 from network_automation.platforms.huawei_vrp.flash import ensure_flash_space
-from network_automation.platforms.huawei_vrp.health_check import run_pre_upgrade_health_check
+from network_automation.platforms.huawei_vrp.health_check import (
+    run_pre_upgrade_health_check,
+    get_ip_routing_table,
+    collect_health_snapshot,
+    compare_interfaces_to_baseline,
+    compare_health_to_baseline,
+    validate_routing_restored,
+)
 from network_automation.platforms.huawei_vrp.idempotency import (
     already_running_target,
     file_already_on_flash,
@@ -415,6 +422,35 @@ def upgrade(client, *, return_result: bool = False):
                 _verify_patch_active(client, client.patch_version)
                 result.metadata["new_patch"] = client.patch_version
                 save_configuration(client)
+
+            # Extended post-reboot validation (Faza 11): uptime (informational),
+            # routing restored, and interface/alarm comparison against the
+            # Faza 10 pre-upgrade baseline. Firmware/patch version mismatches
+            # are handled above as immediate hard failures — they do not feed
+            # into post_reboot_validation_passed.
+            result.metadata["post_upgrade_uptime"] = info_after["units"][0].get("uptime_raw")
+
+            routing_info = get_ip_routing_table(client)
+            routing_result = validate_routing_restored(routing_info)
+
+            post_health_snapshot = collect_health_snapshot(client)
+            interface_comparison = compare_interfaces_to_baseline(
+                result.metadata["pre_upgrade_baseline_health"], post_health_snapshot,
+            )
+            alarm_comparison = compare_health_to_baseline(
+                result.metadata["pre_upgrade_baseline_health"], post_health_snapshot,
+            )
+
+            result.metadata["routing_validation"] = routing_result
+            result.metadata["post_upgrade_health"] = post_health_snapshot
+            result.metadata["interface_validation"] = interface_comparison
+            result.metadata["alarm_validation"] = alarm_comparison
+
+            result.metadata["post_reboot_validation_passed"] = (
+                routing_result["passed"]
+                and interface_comparison["passed"]
+                and alarm_comparison["passed"]
+            )
 
             msg = f"Upgrade completed successfully: {final_version}"
             client.logger.info(msg)

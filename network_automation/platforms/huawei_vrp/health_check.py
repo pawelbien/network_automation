@@ -210,6 +210,102 @@ def evaluate_health(
     return {"violations": violations, "passed": not violations}
 
 
+_ROUTE_COUNT_RE = re.compile(r'Routes\s*:\s*(\d+)')
+_DEFAULT_ROUTE_RE = re.compile(r'^\s*0\.0\.0\.0/0\s', re.MULTILINE)
+
+
+def _parse_ip_routing_table(output: str) -> dict:
+    """
+    Parse 'display ip routing-table' output.
+
+    Returns {"route_count": int, "has_default_route": bool}. Minimal parse —
+    post-reboot validation only needs to prove routing was restored, not
+    full table introspection.
+    """
+    m = _ROUTE_COUNT_RE.search(output)
+    if not m:
+        raise ValueError(
+            f"Could not parse route count from 'display ip routing-table' "
+            f"output: {output!r}"
+        )
+    return {
+        "route_count": int(m.group(1)),
+        "has_default_route": bool(_DEFAULT_ROUTE_RE.search(output)),
+    }
+
+
+def get_ip_routing_table(client) -> dict:
+    """Runs: display ip routing-table. — no connect/disconnect."""
+    command = "display ip routing-table"
+    output = client.conn.send_command(command)
+    _check_cli_output(command, output)
+    return _parse_ip_routing_table(output)
+
+
+# -------------------------------------------------------
+# Post-reboot baseline comparisons (Faza 11)
+# -------------------------------------------------------
+
+def compare_interfaces_to_baseline(baseline: dict, current: dict) -> dict:
+    """
+    Compare current interface status against the pre-upgrade baseline.
+
+    A "new failure" is an interface that was up (both physical and
+    protocol) in the baseline but is no longer up (or is missing) in
+    current. Interfaces present only in current are ignored (informational,
+    not a failure — e.g. a newly-detected interface after upgrade).
+
+    Returns {"new_failures": [name, ...], "passed": bool}.
+    """
+    baseline_interfaces = baseline.get("interfaces", {})
+    current_interfaces = current.get("interfaces", {})
+
+    new_failures = []
+    for name, status in baseline_interfaces.items():
+        was_up = status["physical_status"] == "up" and status["protocol_status"] == "up"
+        if not was_up:
+            continue
+
+        current_status = current_interfaces.get(name)
+        is_up = (
+            current_status is not None
+            and current_status["physical_status"] == "up"
+            and current_status["protocol_status"] == "up"
+        )
+        if not is_up:
+            new_failures.append(name)
+
+    return {"new_failures": new_failures, "passed": not new_failures}
+
+
+def compare_health_to_baseline(baseline: dict, current: dict) -> dict:
+    """
+    Compare current alarms against the pre-upgrade baseline.
+
+    passed=False only when a NEW critical/major alarm appears that wasn't
+    already present in the baseline — an alarm present in both is not
+    "new". CPU/memory are not compared here (the spec defines no separate
+    post-reboot threshold distinct from the pre-upgrade one).
+
+    Returns {"new_alarms": [...], "passed": bool}.
+    """
+    baseline_alarms = {(a["severity"], a["name"]) for a in baseline.get("alarms", [])}
+    new_alarms = [
+        a for a in current.get("alarms", [])
+        if a["severity"] in _ALARM_SEVERITIES
+        and (a["severity"], a["name"]) not in baseline_alarms
+    ]
+    return {"new_alarms": new_alarms, "passed": not new_alarms}
+
+
+def validate_routing_restored(routing_info: dict) -> dict:
+    """
+    Returns {"passed": bool} — True if the routing table has at least one
+    route, taken as evidence that routing was restored post-reboot.
+    """
+    return {"passed": routing_info.get("route_count", 0) > 0}
+
+
 def run_pre_upgrade_health_check(client, result, *, mode: str) -> dict:
     """
     Collect a baseline health snapshot and evaluate it against

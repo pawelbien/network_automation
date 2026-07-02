@@ -15,7 +15,12 @@ def _parse_version(output):
     Parse 'display version' output.
 
     Returns list of partial unit dicts with keys:
-    id, role, model, vrp_version, software_version.
+    id, role, model, vrp_version, software_version, uptime_raw.
+
+    uptime_raw (Faza 11) is parsed from the same per-unit line that already
+    supplies id/role, avoiding a second 'display version' call just for
+    uptime; it is None when the line doesn't include the "uptime is ..."
+    text (not all devices/firmware report it inline).
     """
     vrp_version = None
     software_version = None
@@ -44,14 +49,25 @@ def _parse_version(output):
             model = m.group(1)
             continue
 
-        # MPU 0(Master) : uptime is ...
+        # MPU 0(Master) : uptime is 2 weeks, 1 day, 12 hours, 21 minutes
         # ES6D2S30S003 1(Master)  : uptime is ...
         # ES6D2S30S003 2(Standby)  : uptime is ...
+        m = re.search(r'\S+\s+(\d+)\s*\((Master|Standby)\)\s*:\s*uptime is\s*(.+)', line)
+        if m:
+            units.append({
+                "id": int(m.group(1)),
+                "role": m.group(2).lower(),
+                "uptime_raw": m.group(3).strip(),
+            })
+            continue
+
+        # Same line without inline uptime text (not all devices report it).
         m = re.search(r'\S+\s+(\d+)\s*\((Master|Standby)\)\s*:', line)
         if m:
             units.append({
                 "id": int(m.group(1)),
                 "role": m.group(2).lower(),
+                "uptime_raw": None,
             })
 
     if not vrp_version:

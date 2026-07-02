@@ -27,6 +27,19 @@ _NOT_ON_FLASH = (False, {"expected_md5": None, "actual_md5": None, "match": Fals
 
 
 _PASSING_HEALTH_EVALUATION = {"violations": [], "passed": True}
+_EMPTY_HEALTH_SNAPSHOT = {
+    "cpu_usage_percent": 0.0, "memory_usage_percent": 0.0,
+    "alarms": [], "interfaces": {},
+}
+
+
+def _fake_pre_upgrade_health_check(client, result, *, mode):
+    # Real run_pre_upgrade_health_check() always stores a baseline in
+    # result.metadata — the Faza 11 post-reboot comparisons read that key
+    # unconditionally, so the default mock must set it too (a plain
+    # return_value= mock never touches result.metadata).
+    result.metadata["pre_upgrade_baseline_health"] = _EMPTY_HEALTH_SNAPSHOT
+    return _PASSING_HEALTH_EVALUATION
 
 
 @pytest.fixture(autouse=True)
@@ -35,15 +48,17 @@ def _no_idempotency_skips(mocker):
     Default all idempotency pre-checks (Faza 7 — idempotency.py) to "not
     already done", the flash-space check (Faza 8 — flash.py) to a no-op,
     the pre-upgrade health check (Faza 10 — health_check.py) to a passing
-    no-op, and save_configuration (called twice per Faza 10 — once as a
-    pre-upgrade backup, once post-upgrade) to a no-op, so existing tests
-    exercise the full upload/apply/reboot flow unchanged without needing a
-    real local firmware/patch file on disk, a mocked 'dir' response, or
-    scripted cpu-usage/memory/alarm/interface/save commands. Tests that
-    specifically exercise skip/cleanup/health-check/save behavior override
-    these within the test body (mocker.patch again, or drive the real
-    functions directly — see test_idempotency.py/test_flash.py/
-    test_health_check.py).
+    no-op that still records an (empty) baseline, save_configuration
+    (called twice per Faza 10 — once as a pre-upgrade backup, once
+    post-upgrade) to a no-op, and the Faza 11 post-reboot routing/health
+    lookups to passing no-ops, so existing tests exercise the full
+    upload/apply/reboot flow unchanged without needing a real local
+    firmware/patch file on disk, a mocked 'dir' response, or scripted
+    cpu-usage/memory/alarm/interface/routing-table/save commands. Tests
+    that specifically exercise skip/cleanup/health-check/save/validation
+    behavior override these within the test body (mocker.patch again, or
+    drive the real functions directly — see test_idempotency.py/
+    test_flash.py/test_health_check.py).
     """
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.file_already_on_flash",
@@ -62,10 +77,18 @@ def _no_idempotency_skips(mocker):
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.run_pre_upgrade_health_check",
-        return_value=_PASSING_HEALTH_EVALUATION,
+        side_effect=_fake_pre_upgrade_health_check,
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.save_configuration",
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.get_ip_routing_table",
+        return_value={"route_count": 1, "has_default_route": True},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.collect_health_snapshot",
+        return_value=_EMPTY_HEALTH_SNAPSHOT,
     )
 
 
@@ -1440,6 +1463,136 @@ def test_upgrade_invalid_health_check_mode_raises(huawei_client):
 
     with pytest.raises(ValueError, match="health_check_mode"):
         huawei_client.upgrade()
+
+
+# ---------- upgrade workflow: extended post-reboot validation (Faza 11) ----------
+
+_DISPLAY_ROUTING_TABLE_OK = (
+    "Routing Tables: Public\n"
+    "         Destinations : 1        Routes : 1\n\n"
+    "        0.0.0.0/0    Static  60   0            RD 192.168.1.1     GigabitEthernet0/0/0\n"
+)
+_INTERFACE_DOWN_AFTER_UPGRADE = (
+    "Interface                   PHY   Protocol\n"
+    "GigabitEthernet0/0/0        down  down\n"
+)
+
+
+def test_upgrade_records_extended_post_reboot_validation_metadata(mocker, huawei_client, fake_conn):
+    from network_automation.platforms.huawei_vrp.health_check import (
+        get_ip_routing_table as real_get_ip_routing_table,
+        collect_health_snapshot as real_collect_health_snapshot,
+    )
+
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+        _DISPLAY_ROUTING_TABLE_OK,
+        _CPU_OK, _MEMORY_OK, _ALARM_NONE, _INTERFACE_ALL_UP,
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.get_ip_routing_table",
+        side_effect=real_get_ip_routing_table,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.collect_health_snapshot",
+        side_effect=real_collect_health_snapshot,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.metadata["post_upgrade_uptime"] == "2 weeks, 1 day, 12 hours, 21 minutes"
+    assert result.metadata["routing_validation"] == {"passed": True}
+    assert result.metadata["interface_validation"]["passed"] is True
+    assert result.metadata["alarm_validation"]["passed"] is True
+    assert result.metadata["post_reboot_validation_passed"] is True
+
+
+def test_upgrade_post_reboot_interface_failure_marks_validation_failed(mocker, huawei_client, fake_conn):
+    from network_automation.platforms.huawei_vrp.health_check import (
+        get_ip_routing_table as real_get_ip_routing_table,
+        collect_health_snapshot as real_collect_health_snapshot,
+    )
+
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    baseline_with_up_interface = {
+        "cpu_usage_percent": 0.0, "memory_usage_percent": 0.0, "alarms": [],
+        "interfaces": {"GigabitEthernet0/0/0": {"physical_status": "up", "protocol_status": "up"}},
+    }
+
+    def _fake_health_check(client, result, *, mode):
+        result.metadata["pre_upgrade_baseline_health"] = baseline_with_up_interface
+        return _PASSING_HEALTH_EVALUATION
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+        _DISPLAY_ROUTING_TABLE_OK,
+        _CPU_OK, _MEMORY_OK, _ALARM_NONE, _INTERFACE_DOWN_AFTER_UPGRADE,
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.run_pre_upgrade_health_check",
+        side_effect=_fake_health_check,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.get_ip_routing_table",
+        side_effect=real_get_ip_routing_table,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.collect_health_snapshot",
+        side_effect=real_collect_health_snapshot,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.metadata["interface_validation"]["passed"] is False
+    assert result.metadata["interface_validation"]["new_failures"] == ["GigabitEthernet0/0/0"]
+    assert result.metadata["post_reboot_validation_passed"] is False
+    # No rollback exists yet (Faza 12 adds it) - the operation still
+    # completes and reports success; the flag is available for Faza 12
+    # to act on.
+    assert result.success is True
 
 
 def test_upgrade_firmware_and_patch_md5_mismatch_on_patch_raises(mocker, huawei_client, fake_conn, tmp_path):
