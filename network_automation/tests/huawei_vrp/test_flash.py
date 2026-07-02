@@ -95,7 +95,7 @@ def test_cleanup_flash_deletes_only_candidates():
     ]
     client = SimpleNamespace(conn=conn, logger=MagicMock())
 
-    cleanup_flash(
+    deleted_files = cleanup_flash(
         client,
         flash_files=_FLASH_FILES,
         protected_names={
@@ -113,6 +113,7 @@ def test_cleanup_flash_deletes_only_candidates():
     ]
     assert deleted == ["delete flash:/orphan.cc"]
     conn.send_command_timing.assert_any_call("reset recycle-bin")
+    assert deleted_files == ["orphan.cc"]
 
 
 def test_cleanup_flash_repoints_backup_before_deleting_it():
@@ -125,7 +126,7 @@ def test_cleanup_flash_repoints_backup_before_deleting_it():
     ]
     client = SimpleNamespace(conn=conn, logger=MagicMock())
 
-    cleanup_flash(
+    deleted_files = cleanup_flash(
         client,
         flash_files=_FLASH_FILES,
         protected_names={
@@ -141,6 +142,7 @@ def test_cleanup_flash_repoints_backup_before_deleting_it():
         read_timeout=300,
     )
     conn.send_command_timing.assert_any_call("delete flash:/AR650A_V300R022C00SPC100.cc")
+    assert set(deleted_files) == {"AR650A_V300R022C00SPC100.cc", "orphan.cc"}
 
 
 def test_cleanup_flash_never_touches_protected_files():
@@ -218,7 +220,8 @@ def test_ensure_flash_space_runs_cleanup_when_insufficient(mocker, tmp_path):
         ],
     )
     mock_cleanup = mocker.patch(
-        "network_automation.platforms.huawei_vrp.flash.cleanup_flash"
+        "network_automation.platforms.huawei_vrp.flash.cleanup_flash",
+        return_value=["orphan.cc"],
     )
 
     units = [{
@@ -234,6 +237,7 @@ def test_ensure_flash_space_runs_cleanup_when_insufficient(mocker, tmp_path):
     mock_cleanup.assert_called_once()
     assert result.metadata["flash_cleanup_performed"] is True
     assert result.metadata["flash_free_bytes"] == 10_000_000_000
+    assert result.metadata["deleted_files"] == ["orphan.cc"]
 
 
 def test_ensure_flash_space_raises_when_still_insufficient_after_cleanup(mocker, tmp_path):

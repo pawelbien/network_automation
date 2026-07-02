@@ -84,7 +84,7 @@ def cleanup_flash(
     protected_names: set[str],
     startup_image_name: str,
     backup_image_name: str | None,
-) -> None:
+) -> list[str]:
     """
     Free flash space by deleting delete-candidates: orphaned .cc/.pat files
     and the configured backup image, if any — never `protected_names`.
@@ -100,6 +100,9 @@ def cleanup_flash(
 
     - no connect/disconnect
     - raises RuntimeError if any delete is rejected
+    - returns the list of filenames actually deleted, in deletion order
+      (Faza 13 — feeds result.metadata["deleted_files"] for the operation
+      report)
     """
     candidates = [
         f["name"] for f in flash_files
@@ -122,6 +125,8 @@ def cleanup_flash(
             break
         output = client.conn.send_command_timing("y")
 
+    return candidates
+
 
 def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -> None:
     """
@@ -129,7 +134,8 @@ def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -
     free flash space is insufficient, run cleanup_flash() and recheck.
 
     Records result.metadata["flash_required_bytes"], ["flash_free_bytes"],
-    and ["flash_cleanup_performed"] (only set when cleanup actually ran).
+    and ["flash_cleanup_performed"]/["deleted_files"] (both only set when
+    cleanup actually ran — Faza 13).
 
     Raises RuntimeError if space is still insufficient after cleanup —
     always before any upload.
@@ -177,7 +183,7 @@ def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -
         flash_info["free_bytes"], required,
     )
 
-    cleanup_flash(
+    deleted = cleanup_flash(
         client,
         flash_files=flash_info["files"],
         protected_names=protected_names,
@@ -185,6 +191,7 @@ def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -
         backup_image_name=backup_image_name,
     )
     result.metadata["flash_cleanup_performed"] = True
+    result.metadata["deleted_files"] = deleted
 
     flash_info = get_flash_info(client)
     result.metadata["flash_free_bytes"] = flash_info["free_bytes"]

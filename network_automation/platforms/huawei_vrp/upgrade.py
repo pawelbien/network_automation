@@ -12,6 +12,7 @@ Deliberately out of scope for this pass (tracked as follow-up work):
 automatic rollback and multi-unit/stack upgrades.
 """
 
+import time
 from pathlib import Path
 
 from network_automation.results import OperationResult
@@ -403,9 +404,11 @@ def upgrade(client, *, return_result: bool = False):
                     client.firmware_version,
                 )
 
+                reboot_started = time.monotonic()
                 client.reboot()
                 client.conn = client.wait_for_reconnect()
                 result.metadata["rebooted"] = True
+                result.metadata["reboot_duration_seconds"] = time.monotonic() - reboot_started
 
                 info_after = get_info(client)
 

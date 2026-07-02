@@ -988,6 +988,9 @@ def test_upgrade_skips_reboot_when_already_running_target(mocker, huawei_client,
     mock_reboot.assert_not_called()
     assert result.metadata["skipped_steps"]["reboot"]
     assert result.metadata["new_firmware"] == "V300R024C00SPC200"
+    # reboot_duration_seconds (Faza 13) is only recorded when a reboot
+    # actually happens - consistent with the existing "rebooted" key.
+    assert "reboot_duration_seconds" not in result.metadata
 
 
 # ---------- upgrade workflow: MD5 verification (match / mismatch per branch) ----------
@@ -1631,3 +1634,101 @@ def test_upgrade_firmware_and_patch_md5_mismatch_on_patch_raises(mocker, huawei_
         huawei_client.upgrade()
 
     mock_configure.assert_not_called()
+
+
+# ---------- upgrade workflow: report finalization (Faza 13) ----------
+
+def test_upgrade_records_reboot_duration_seconds(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert isinstance(result.metadata["reboot_duration_seconds"], float)
+    assert result.metadata["reboot_duration_seconds"] >= 0
+
+
+def test_upgrade_full_report_shape_contains_all_expected_fields(mocker, huawei_client, fake_conn):
+    """
+    Integration-style check that a full FIRMWARE_AND_PATCH run populates
+    every report field required by "Report contents" in
+    engineering_handbook/tmp/huawei_vrp_update.txt, mapped onto existing
+    metadata keys (see ANALYSIS.md's Finalization mapping table) - except
+    "signature verification result" and "rollback performed", which are
+    deliberately not implemented (see ANALYSIS.md, "Obszary świadomie
+    niezaimplementowane") and so are correctly absent here.
+    """
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.patch_version = "ARV300R024SPH1b0"
+    huawei_client.patch_file = f"/tmp/{PATCH_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _display_patch_information("ARV300R024SPH1a0", "old.pat"),
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_patch(TARGET_FILENAME, TARGET_FILENAME, "old.pat", PATCH_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+        _display_patch_information("ARV300R024SPH1b0", PATCH_FILENAME),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    expected_keys = {
+        "current_firmware", "new_firmware",       # previous/new firmware
+        "current_patch", "new_patch",             # previous/new patch
+        "uploaded_file", "uploaded_patch_file",    # uploaded files
+        "md5_results",                             # MD5 results
+        "pre_upgrade_baseline_health",             # pre-upgrade baseline
+        "post_upgrade_health",                     # post-upgrade health comparison
+        "interface_validation", "alarm_validation",
+        "reboot_duration_seconds",                 # reboot duration
+        "post_reboot_validation_passed", "routing_validation",  # validation results
+    }
+    missing = expected_keys - result.metadata.keys()
+    assert not missing, f"Report missing expected fields: {missing}"
+
+    # Deliberately absent - not implemented in this pass (see ANALYSIS.md).
+    assert "signature_verification" not in result.metadata
+    assert "outcome" not in result.metadata
+    assert "rollback_attempted" not in result.metadata
