@@ -33,9 +33,15 @@ def _parse_cpu_usage(output: str) -> dict:
     """
     Parse 'display cpu-usage' output.
 
+    Matches the first "CPU Usage:" occurrence, which on multi-plane devices
+    (e.g. AR650 V300R024+) is the Control Plane figure — the one relevant
+    to management/routing daemon stability, as opposed to the Data Plane
+    figure that follows it. Accepts decimal values (e.g. "8.4%") since
+    newer VRP releases report fractional percentages, not just integers.
+
     Returns {"cpu_usage_percent": float}.
     """
-    m = re.search(r'CPU Usage\s*:\s*(\d+)%', output)
+    m = re.search(r'CPU Usage\s*:\s*([\d.]+)%', output)
     if not m:
         raise ValueError(f"Could not parse CPU usage from output: {output!r}")
     return {"cpu_usage_percent": float(m.group(1))}

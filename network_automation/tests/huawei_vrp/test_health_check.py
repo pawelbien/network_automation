@@ -27,6 +27,19 @@ from network_automation.platforms.huawei_vrp.health_check import (
 # ---------- Shared device output helpers ----------
 
 _DISPLAY_CPU_USAGE = "CPU Usage            : 12% Max: 45%\n"
+# AR650 V300R024C00SPC100: multi-plane format with decimal percentages,
+# distinct from the older flat single-line format above.
+_DISPLAY_CPU_USAGE_MULTI_PLANE = (
+    "CPU   Usage Stat. Cycle: 10 (Second)\n"
+    "CPU   Usage Stat. Time : 2026-07-02  14:18:13 DST\n"
+    "Control Plane\n"
+    "    CPU Usage:  8.4%   Max: 46.0% \n"
+    "    User:  3.2%   System:  5.1%   SoftIrq:  0.0%   HardIrq:  0.0%   Idle: 91.6%  \n"
+    "    CPU utilization for ten seconds:  8.4%  one minute:   7.0%  five minutes:   7.0% .\n"
+    "Data    Plane\n"
+    "    CPU Usage:  0.0%   Max:  0.4% \n"
+    "    CPU utilization for ten seconds:  0.0%  one minute:   0.0%  five minutes:   0.0% .\n"
+)
 _DISPLAY_MEMORY = "Memory Using Percentage Is: 50%\n"
 _DISPLAY_ALARM_ACTIVE_NONE = "No alarm information.\n"
 _DISPLAY_ALARM_ACTIVE_CRITICAL = (
@@ -45,6 +58,12 @@ _DISPLAY_INTERFACE_BRIEF = (
 
 def test_parse_cpu_usage():
     assert _parse_cpu_usage(_DISPLAY_CPU_USAGE) == {"cpu_usage_percent": 12.0}
+
+
+def test_parse_cpu_usage_multi_plane_decimal():
+    assert _parse_cpu_usage(_DISPLAY_CPU_USAGE_MULTI_PLANE) == {
+        "cpu_usage_percent": 8.4
+    }
 
 
 def test_parse_cpu_usage_unparseable_raises():
