@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
+from network_automation.platforms.huawei_vrp.cli_errors import CLIError
 from network_automation.platforms.huawei_vrp.info import (
     _parse_version,
     _parse_esn,
@@ -319,6 +320,15 @@ def test_get_file_md5(huawei_client):
     )
 
 
+def test_get_file_md5_raises_cli_error_on_error_output(huawei_client):
+    conn = MagicMock()
+    conn.send_command.side_effect = ["Error: file not found"]
+    huawei_client.conn = conn
+
+    with pytest.raises(CLIError):
+        get_file_md5(huawei_client, "missing.cc")
+
+
 # ---------------------------------------------------------------------------
 # get_patch_info (uses fake conn, no connection lifecycle)
 # ---------------------------------------------------------------------------
@@ -333,6 +343,15 @@ def test_get_patch_info(huawei_client):
     assert info["patch_version"] == "ARV300R023SPH1b0"
     assert info["state"] == "Running"
     conn.send_command.assert_called_once_with("display patch-information")
+
+
+def test_get_patch_info_raises_cli_error_on_error_output(huawei_client):
+    conn = MagicMock()
+    conn.send_command.side_effect = ["% Wrong parameter"]
+    huawei_client.conn = conn
+
+    with pytest.raises(CLIError):
+        get_patch_info(huawei_client)
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +409,15 @@ def test_get_info_stack(huawei_client):
     assert standby["esn"] == "6R23C0039593"
     assert standby["startup_image"] == "flash:/s6730_v200r024c00spc500.cc"
     assert standby["startup_patch"] == "flash:/s6730-h_v200r024sph121.pat"
+
+
+def test_get_info_raises_cli_error_and_does_not_reach_parser(huawei_client):
+    huawei_client.conn = _fake_conn(
+        "% Unrecognized command", DISPLAY_ESN_ROUTER, DISPLAY_STARTUP_ROUTER
+    )
+
+    with pytest.raises(CLIError):
+        get_info(huawei_client)
 
 
 # ---------------------------------------------------------------------------

@@ -5,11 +5,13 @@ import hashlib
 import pytest
 from unittest.mock import MagicMock
 
+from network_automation.platforms.huawei_vrp.cli_errors import CLIError
 from network_automation.platforms.huawei_vrp.upgrade import (
     configure_next_startup,
     configure_next_startup_patch,
     apply_patch,
     verify_md5,
+    save_configuration,
     upgrade,
 )
 from network_automation.results import OperationResult
@@ -111,6 +113,24 @@ def test_configure_next_startup_mismatch_raises(huawei_client, fake_conn):
         configure_next_startup(huawei_client, TARGET_FILENAME)
 
 
+def test_configure_next_startup_raises_cli_error_on_ack_error(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = ["% Wrong parameter"]
+
+    with pytest.raises(CLIError):
+        configure_next_startup(huawei_client, TARGET_FILENAME)
+
+
+def test_configure_next_startup_raises_cli_error_on_display_startup_error(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = ["", "Error: internal failure"]
+
+    with pytest.raises(CLIError):
+        configure_next_startup(huawei_client, TARGET_FILENAME)
+
+
 # ---------- configure_next_startup_patch ----------
 
 def test_configure_next_startup_patch_success(huawei_client, fake_conn):
@@ -175,6 +195,29 @@ def test_apply_patch_version_mismatch_raises(huawei_client, fake_conn):
 
     with pytest.raises(RuntimeError):
         apply_patch(huawei_client, PATCH_FILENAME, "ARV300R024SPH1b0")
+
+
+def test_apply_patch_raises_cli_error_on_ack_error(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = ["% Unrecognized command"]
+
+    with pytest.raises(CLIError):
+        apply_patch(huawei_client, PATCH_FILENAME, "ARV300R024SPH1b0")
+
+
+def test_save_configuration_does_not_raise_on_normal_yn_prompt(huawei_client, fake_conn):
+    # Proves save_configuration() does NOT falsely trigger the CLI-error
+    # check on ordinary [Y/N] prompt text (no check is applied at all here).
+    huawei_client.conn = fake_conn
+    fake_conn.send_command_timing.side_effect = [
+        "Warning: dangerous, continue? [Y/N]:",
+        "Save the configuration successfully.",
+    ]
+
+    save_configuration(huawei_client)  # must not raise
+
+    assert fake_conn.send_command_timing.call_count == 2
 
 
 # ---------- verify_md5 ----------

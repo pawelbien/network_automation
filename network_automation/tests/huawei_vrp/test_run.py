@@ -1,6 +1,9 @@
 # network_automation/tests/huawei_vrp/test_run.py
 
+import pytest
 from unittest.mock import MagicMock
+
+from network_automation.platforms.huawei_vrp.cli_errors import CLIError
 from network_automation.results import OperationResult
 
 
@@ -74,3 +77,15 @@ def test_run_multiple_commands(monkeypatch, huawei_client):
     ]
 
     assert fake_conn.send_command.call_count == 2
+
+
+def test_run_raises_cli_error_and_does_not_reach_output_list(monkeypatch, huawei_client):
+    monkeypatch.setattr(huawei_client, "connect", lambda: None)
+    monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
+
+    fake_conn = MagicMock()
+    fake_conn.send_command.return_value = "% Unrecognized command"
+    huawei_client.conn = fake_conn
+
+    with pytest.raises(CLIError):
+        huawei_client.run("display bogus", return_result=False)

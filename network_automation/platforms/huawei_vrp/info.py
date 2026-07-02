@@ -7,6 +7,7 @@ Huawei VRP device information helpers.
 import re
 
 from network_automation.results import OperationResult
+from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 
 
 def _parse_version(output):
@@ -217,7 +218,9 @@ def get_file_md5(client, filename: str) -> str:
     - only called from upgrade.py's MD5 verification step, so it never
       affects the get_info() command sequence.
     """
-    output = client.conn.send_command(f"display system file-md5 flash:/{filename}")
+    command = f"display system file-md5 flash:/{filename}"
+    output = client.conn.send_command(command)
+    _check_cli_output(command, output)
     return _parse_file_md5(output)
 
 
@@ -232,7 +235,9 @@ def get_patch_info(client):
       a patch operation is requested, so it never affects the get_info()
       command sequence.
     """
-    output = client.conn.send_command("display patch-information")
+    command = "display patch-information"
+    output = client.conn.send_command(command)
+    _check_cli_output(command, output)
     return _parse_patch_information(output)
 
 
@@ -264,8 +269,13 @@ def get_info(client):
     client.logger.info("Reading device info...")
 
     version_output = client.conn.send_command("display version")
+    _check_cli_output("display version", version_output)
+
     esn_output = client.conn.send_command("display esn")
+    _check_cli_output("display esn", esn_output)
+
     startup_output = client.conn.send_command("display startup")
+    _check_cli_output("display startup", startup_output)
 
     units = _parse_version(version_output)
     esn_map = _parse_esn(esn_output)

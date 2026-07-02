@@ -139,6 +139,9 @@ class HuaweiVRP(BaseClient):
         """Reboot the device, confirming any interactive [Y/N] prompts."""
         self.logger.info("Rebooting device...")
 
+        # send_command_timing output here is an interactive [Y/N] confirmation
+        # prompt, not command output to validate — the CLI-error check does
+        # not apply to prompt-handling loops.
         output = self.conn.send_command_timing("reboot")
 
         for _ in range(3):
@@ -179,6 +182,9 @@ class HuaweiVRP(BaseClient):
                 time.sleep(1.0)
 
                 # ---- probe CLI readiness (bounded, must not hang) ----
+                # Deliberately tolerant of garbled/incomplete output during
+                # device boot and already retried on any exception below, so
+                # the CLI-error check does not apply here.
                 out = conn.send_command(
                     "display version",
                     delay_factor=2,

@@ -17,6 +17,7 @@ and multi-unit/stack upgrades.
 from pathlib import Path
 
 from network_automation.results import OperationResult
+from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, get_file_md5, _parse_startup
 from network_automation.platforms.huawei_vrp.upload import upload_files, compute_local_md5
 from network_automation.platforms.huawei_vrp.version import (
@@ -35,9 +36,13 @@ def configure_next_startup(client, filename: str):
     - no connect/disconnect
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
-    client.conn.send_command(f"startup system-software flash:/{filename}")
+    command = f"startup system-software flash:/{filename}"
+    ack = client.conn.send_command(command)
+    _check_cli_output(command, ack, expect_content=False)
 
-    startup = _parse_startup(client.conn.send_command("display startup"))
+    startup_output = client.conn.send_command("display startup")
+    _check_cli_output("display startup", startup_output)
+    startup = _parse_startup(startup_output)
     master = startup.get("master", {})
     next_image = master.get("next_startup_image") or ""
 
@@ -55,9 +60,13 @@ def configure_next_startup_patch(client, filename: str):
     - no connect/disconnect
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
-    client.conn.send_command(f"startup patch flash:/{filename}")
+    command = f"startup patch flash:/{filename}"
+    ack = client.conn.send_command(command)
+    _check_cli_output(command, ack, expect_content=False)
 
-    startup = _parse_startup(client.conn.send_command("display startup"))
+    startup_output = client.conn.send_command("display startup")
+    _check_cli_output("display startup", startup_output)
+    startup = _parse_startup(startup_output)
     master = startup.get("master", {})
     next_patch = master.get("next_startup_patch") or ""
 
@@ -122,7 +131,9 @@ def apply_patch(client, filename: str, expected_patch_version: str):
     - no connect/disconnect
     - raises RuntimeError if the patch isn't running or the version mismatches
     """
-    client.conn.send_command(f"patch load flash:/{filename} all run")
+    command = f"patch load flash:/{filename} all run"
+    ack = client.conn.send_command(command)
+    _check_cli_output(command, ack, expect_content=False)
     return _verify_patch_active(client, expected_patch_version)
 
 
@@ -132,6 +143,9 @@ def save_configuration(client):
 
     - no connect/disconnect
     """
+    # send_command_timing output here is an interactive [Y/N] confirmation
+    # prompt, not command output to validate — the CLI-error check does not
+    # apply to prompt-handling loops.
     output = client.conn.send_command_timing("save")
 
     for _ in range(3):
