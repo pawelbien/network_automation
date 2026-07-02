@@ -30,10 +30,12 @@ _NOT_ON_FLASH = (False, {"expected_md5": None, "actual_md5": None, "match": Fals
 def _no_idempotency_skips(mocker):
     """
     Default all idempotency pre-checks (Faza 7 — idempotency.py) to "not
-    already done", so existing tests exercise the full upload/apply/reboot
-    flow unchanged. Tests that specifically exercise skip behavior override
-    these within the test body (mocker.patch again, or drive the real
-    idempotency.py functions directly — see test_idempotency.py).
+    already done", and the flash-space check (Faza 8 — flash.py) to a
+    no-op, so existing tests exercise the full upload/apply/reboot flow
+    unchanged without needing a real local firmware/patch file on disk or
+    a mocked 'dir' response. Tests that specifically exercise skip/cleanup
+    behavior override these within the test body (mocker.patch again, or
+    drive the real functions directly — see test_idempotency.py/test_flash.py).
     """
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.file_already_on_flash",
@@ -46,6 +48,9 @@ def _no_idempotency_skips(mocker):
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.already_running_target",
         return_value=False,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.ensure_flash_space",
     )
 
 
@@ -739,6 +744,52 @@ def test_upgrade_rejects_patch_release_mismatch_before_upload(mocker, huawei_cli
         huawei_client.upgrade()
 
     mock_upload.assert_not_called()
+
+
+# ---------- upgrade workflow: flash space (Faza 8) ----------
+
+def test_upgrade_ensure_flash_space_wired_end_to_end(mocker, huawei_client, fake_conn, tmp_path):
+    # Un-mocks ensure_flash_space (only for this test) to exercise the real
+    # flash.py wiring: get_flash_info() -> calculate_required_space() ->
+    # (enough free space, so no cleanup) -> result.metadata.
+    from network_automation.platforms.huawei_vrp.flash import ensure_flash_space as real_ensure_flash_space
+
+    patch_file = tmp_path / PATCH_FILENAME
+    patch_file.write_bytes(b"patch package contents")
+
+    huawei_client.firmware_version = "V300R024C00SPC100"  # same as current -> PATCH_ONLY
+    huawei_client.firmware_file = "/tmp/unused.cc"
+    huawei_client.patch_version = "ARV300R024SPH1b0"
+    huawei_client.patch_file = str(patch_file)
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _display_patch_information("ARV300R024SPH1a0", "old.pat"),
+        # get_flash_info(): dir -- plenty of free space, no files needed
+        "Directory of flash:/\n\n1,000,000 KB total available (900,000 KB free)\n",
+    ]
+    fake_conn.send_command_timing.side_effect = ["Save the configuration successfully."]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.ensure_flash_space",
+        side_effect=real_ensure_flash_space,
+    )
+    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_files")
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.apply_patch")
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.metadata["flash_free_bytes"] == 900_000 * 1024
+    assert "flash_cleanup_performed" not in result.metadata
 
 
 # ---------- upgrade workflow: idempotency ----------

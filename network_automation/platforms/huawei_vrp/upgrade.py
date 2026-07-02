@@ -9,14 +9,14 @@ MD5 verification, startup configuration, hot patch apply, reboot, and
 post-reboot verification.
 
 Deliberately out of scope for this pass (tracked as follow-up work):
-pre/post health checks, flash cleanup, automatic rollback, and
-multi-unit/stack upgrades.
+pre/post health checks, automatic rollback, and multi-unit/stack upgrades.
 """
 
 from pathlib import Path
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.flash import ensure_flash_space
 from network_automation.platforms.huawei_vrp.idempotency import (
     already_running_target,
     file_already_on_flash,
@@ -224,6 +224,11 @@ def upgrade(client, *, return_result: bool = False):
     done — see idempotency.py — so re-running after an interruption is
     safe. Every skipped step is logged and recorded in
     result.metadata["skipped_steps"].
+
+    Before any upload: computes required flash space for the target files
+    (see flash.py) and, if free space is insufficient, deletes candidate
+    files (orphaned .cc/.pat, backup image — never protected or currently
+    running files) and rechecks; raises RuntimeError if still insufficient.
     """
     with device_lock(client):
         if not client.firmware_version:
@@ -300,6 +305,8 @@ def upgrade(client, *, return_result: bool = False):
             validate_upgrade_inputs(
                 client, unit_model=units[0]["model"], operation_type=operation_type
             )
+
+            ensure_flash_space(client, result, operation_type, units)
 
             if operation_type == OPERATION_PATCH_ONLY:
                 patch_path = Path(client.patch_file)

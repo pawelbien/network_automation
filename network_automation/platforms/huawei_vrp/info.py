@@ -107,11 +107,14 @@ def _parse_startup(output):
 
     Returns dict mapping role to startup fields:
     {
-        "master":  {startup_image, next_startup_image, startup_patch, next_startup_patch},
+        "master":  {startup_image, next_startup_image, backup_image, startup_patch, next_startup_patch},
         "standby": {...},   # only present for stacked devices
     }
 
-    startup_patch / next_startup_patch are None when the device reports "null" or "default".
+    startup_patch / next_startup_patch / backup_image are None when the
+    device reports "null" or "default", or when the line is absent (not
+    every device/firmware reports "Backup system software for next
+    startup").
     """
     SECTION_ROLES = {
         "MainBoard": "master",
@@ -128,6 +131,7 @@ def _parse_startup(output):
             result[current_role] = {
                 "startup_image": None,
                 "next_startup_image": None,
+                "backup_image": None,
                 "startup_patch": None,
                 "next_startup_patch": None,
             }
@@ -149,6 +153,8 @@ def _parse_startup(output):
             result[current_role]["startup_image"] = value
         elif key == "Next startup system software":
             result[current_role]["next_startup_image"] = value
+        elif key == "Backup system software for next startup":
+            result[current_role]["backup_image"] = optional
         elif key == "Startup patch package":
             result[current_role]["startup_patch"] = optional
         elif key == "Next startup patch package":
@@ -208,6 +214,79 @@ def _parse_file_md5(output: str) -> str:
     return m.group(1).lower()
 
 
+# Matches a 'dir' file/directory listing line, e.g.:
+#   0  drw-              -  Nov 30 2023 14:17:02   shelldir
+#  31  -rw-    161,819,648  Mar 16 2025 13:38:03   AR650A_V300R023C00SPC100.cc
+# Attr's first char is 'd' (directory) or '-' (file); Size(Byte) is either
+# a comma-grouped number or '-' for directories.
+_DIR_LINE_RE = re.compile(
+    r'^\s*\d+\s+(?P<attr>[d-][rwo-]{3})\s+(?P<size>[\d,]+|-)\s+'
+    r'\w+\s+\d+\s+\d+\s+[\d:]+\s+(?P<name>\S+)\s*$'
+)
+
+# 631,960 KB total available (237,728 KB free)
+_DIR_FREE_SPACE_RE = re.compile(r'([\d,]+)\s*KB\s+free', re.IGNORECASE)
+
+
+def _parse_dir(output: str) -> dict:
+    """
+    Parse 'dir' (flash root listing) output.
+
+    Returns dict:
+    {
+        "files": [{"name": str, "size": int, "is_dir": bool}, ...],
+        "free_bytes": int,
+    }
+
+    File sizes and free space are both normalized to bytes (the device
+    reports free space in KB, individual file sizes in bytes) so callers
+    can compare them directly. Directory entries have size 0.
+
+    Raises ValueError if the free-space summary line isn't found.
+    """
+    files = []
+    for line in output.splitlines():
+        m = _DIR_LINE_RE.match(line)
+        if not m:
+            continue
+
+        size_str = m.group("size")
+        size = 0 if size_str == "-" else int(size_str.replace(",", ""))
+
+        files.append({
+            "name": m.group("name"),
+            "size": size,
+            "is_dir": m.group("attr").startswith("d"),
+        })
+
+    m = _DIR_FREE_SPACE_RE.search(output)
+    if not m:
+        raise ValueError(
+            f"Could not parse free space from 'dir' output: {output!r}"
+        )
+
+    free_kb = int(m.group(1).replace(",", ""))
+
+    return {"files": files, "free_bytes": free_kb * 1024}
+
+
+def get_flash_info(client) -> dict:
+    """
+    Read the flash root directory listing and free space.
+
+    Runs: dir.
+
+    - no connect/disconnect
+    - not part of get_info()/read_info() — only called from upgrade.py's
+      flash-space/cleanup step, so it never affects the get_info() command
+      sequence.
+    """
+    command = "dir"
+    output = client.conn.send_command(command)
+    _check_cli_output(command, output)
+    return _parse_dir(output)
+
+
 def get_file_md5(client, filename: str) -> str:
     """
     Read the device-computed MD5 of a file already present on flash.
@@ -259,6 +338,7 @@ def get_info(client):
                 "software_version": str,
                 "startup_image":    str,
                 "next_startup_image": str,
+                "backup_image":     str | None,
                 "startup_patch":    str | None,
                 "next_startup_patch": str | None,
             },
@@ -286,6 +366,7 @@ def get_info(client):
     _empty_startup = {
         "startup_image": None,
         "next_startup_image": None,
+        "backup_image": None,
         "startup_patch": None,
         "next_startup_patch": None,
     }

@@ -10,9 +10,11 @@ from network_automation.platforms.huawei_vrp.info import (
     _parse_startup,
     _parse_patch_information,
     _parse_file_md5,
+    _parse_dir,
     get_info,
     get_patch_info,
     get_file_md5,
+    get_flash_info,
     read_info,
 )
 from network_automation.results import OperationResult
@@ -175,6 +177,24 @@ Verifying the file, please wait...
 Info: The MD5 value of the file flash:/AR650A_V300R024C00SPC200.cc is: 5F8AD13D1C9C7C50CBCBC7C0E5E7F8AB
 """
 
+# Verbatim (trimmed) real-device 'dir' output — includes directories (size
+# '-'), regular files with comma-grouped byte sizes, and the trailing free
+# space summary line.
+DISPLAY_DIR = """\
+Directory of flash:/
+
+  Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
+    0  drw-              -  Nov 30 2023 14:17:02   shelldir
+    1  -rw-        207,376  Nov 30 2023 14:48:53   webdata.db
+   10  -rw-     12,830,336  Nov 30 2023 14:37:47   AR650A_V300R022SPH180.pat
+   15  -rw-     13,396,864  Mar 16 2025 13:05:50   AR650A_V300R023SPH1b0.pat
+   17  -rw-          2,305  Jul 01 2026 09:27:55   vrpcfg.zip
+   31  -rw-    161,819,648  Mar 16 2025 13:38:03   AR650A_V300R023C00SPC100.cc
+   32  -rw-    198,369,024  Nov 30 2023 14:30:30   AR650A_V300R022C00SPC100.cc
+
+631,960 KB total available (237,728 KB free)
+"""
+
 
 # ---------------------------------------------------------------------------
 # _parse_version
@@ -238,6 +258,7 @@ def test_parse_startup_router():
     s = startup_map["master"]
     assert s["startup_image"] == "flash:/AR650A_V300R024C00SPC100.cc"
     assert s["next_startup_image"] == "flash:/AR650A_V300R024C00SPC100.cc"
+    assert s["backup_image"] == "flash:/AR650A_V300R023C00SPC100.cc"
     assert s["startup_patch"] == "flash:/AR650A_V300R024SPH121.pat"
     assert s["next_startup_patch"] == "flash:/AR650A_V300R024SPH121.pat"
 
@@ -266,6 +287,14 @@ MainBoard:
     s = _parse_startup(output)["master"]
     assert s["startup_patch"] is None
     assert s["next_startup_patch"] is None
+
+
+def test_parse_startup_backup_image_none_when_absent():
+    # Not every device/firmware reports the "Backup system software for
+    # next startup" line at all (e.g. DISPLAY_STARTUP_STACK) -- absence
+    # must not be a parse error, just an unset field.
+    s = _parse_startup(DISPLAY_STARTUP_STACK)["master"]
+    assert s["backup_image"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +359,62 @@ def test_get_file_md5_raises_cli_error_on_error_output(huawei_client):
 
 
 # ---------------------------------------------------------------------------
+# _parse_dir
+# ---------------------------------------------------------------------------
+
+def test_parse_dir_extracts_files_and_free_space():
+    result = _parse_dir(DISPLAY_DIR)
+
+    assert result["free_bytes"] == 237_728 * 1024
+
+    by_name = {f["name"]: f for f in result["files"]}
+    assert by_name["AR650A_V300R023C00SPC100.cc"] == {
+        "name": "AR650A_V300R023C00SPC100.cc",
+        "size": 161_819_648,
+        "is_dir": False,
+    }
+    assert by_name["AR650A_V300R022C00SPC100.cc"]["size"] == 198_369_024
+    assert by_name["AR650A_V300R023SPH1b0.pat"]["size"] == 13_396_864
+
+
+def test_parse_dir_directories_have_zero_size_and_is_dir_true():
+    result = _parse_dir(DISPLAY_DIR)
+
+    by_name = {f["name"]: f for f in result["files"]}
+    assert by_name["shelldir"] == {"name": "shelldir", "size": 0, "is_dir": True}
+
+
+def test_parse_dir_raises_when_free_space_line_missing():
+    with pytest.raises(ValueError):
+        _parse_dir("Directory of flash:/\n\n  Idx  Attr  Size(Byte)\n")
+
+
+# ---------------------------------------------------------------------------
+# get_flash_info (uses fake conn, no connection lifecycle)
+# ---------------------------------------------------------------------------
+
+def test_get_flash_info(huawei_client):
+    conn = MagicMock()
+    conn.send_command.side_effect = [DISPLAY_DIR]
+    huawei_client.conn = conn
+
+    flash_info = get_flash_info(huawei_client)
+
+    assert flash_info["free_bytes"] == 237_728 * 1024
+    assert any(f["name"] == "AR650A_V300R023C00SPC100.cc" for f in flash_info["files"])
+    conn.send_command.assert_called_once_with("dir")
+
+
+def test_get_flash_info_raises_cli_error_on_error_output(huawei_client):
+    conn = MagicMock()
+    conn.send_command.side_effect = ["Error: unrecognized command"]
+    huawei_client.conn = conn
+
+    with pytest.raises(CLIError):
+        get_flash_info(huawei_client)
+
+
+# ---------------------------------------------------------------------------
 # get_patch_info (uses fake conn, no connection lifecycle)
 # ---------------------------------------------------------------------------
 
@@ -382,6 +467,7 @@ def test_get_info_router(huawei_client):
     assert m["software_version"] == "V300R024C00SPC100"
     assert m["startup_image"] == "flash:/AR650A_V300R024C00SPC100.cc"
     assert m["next_startup_image"] == "flash:/AR650A_V300R024C00SPC100.cc"
+    assert m["backup_image"] == "flash:/AR650A_V300R023C00SPC100.cc"
     assert m["startup_patch"] == "flash:/AR650A_V300R024SPH121.pat"
     assert m["next_startup_patch"] == "flash:/AR650A_V300R024SPH121.pat"
 
