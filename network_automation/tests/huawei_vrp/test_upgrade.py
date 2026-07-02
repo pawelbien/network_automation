@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from network_automation.platforms.huawei_vrp.cli_errors import CLIError
 from network_automation.platforms.huawei_vrp.lock import DeviceBusyError, _lock_path
+from network_automation.platforms.huawei_vrp.version import DowngradeRejectedError
 from network_automation.platforms.huawei_vrp.upgrade import (
     configure_next_startup,
     configure_next_startup_patch,
@@ -562,6 +563,158 @@ def test_upgrade_none_skips_when_nothing_newer(mocker, huawei_client, fake_conn)
     mock_upload.assert_not_called()
     assert result.metadata["operation_type"] == "NONE"
     assert result.metadata["skipped"] is True
+
+
+# ---------- upgrade workflow: input validation / forced downgrade ----------
+
+def test_upgrade_downgrade_rejected_by_default(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC100"  # older than current
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("200"), _ESN, _display_startup("old.cc", "old.cc"),
+    ]
+
+    mock_upload = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+    )
+
+    with pytest.raises(DowngradeRejectedError):
+        huawei_client.upgrade()
+
+    mock_upload.assert_not_called()
+
+
+def test_upgrade_force_downgrade_without_confirmation_raises(mocker, huawei_client):
+    huawei_client.firmware_version = "V300R024C00SPC100"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.force_downgrade = True
+    # i_understand_downgrade_risk left at its default (False)
+
+    mock_connect = mocker.patch.object(huawei_client, "connect")
+
+    with pytest.raises(ValueError, match="i_understand_downgrade_risk"):
+        huawei_client.upgrade()
+
+    mock_connect.assert_not_called()
+
+
+def test_upgrade_force_downgrade_with_confirmation_succeeds(mocker, huawei_client, fake_conn):
+    downgrade_filename = "AR650A_V300R024C00SPC100.cc"
+    huawei_client.firmware_version = "V300R024C00SPC100"  # older than current (200)
+    huawei_client.firmware_file = f"/tmp/{downgrade_filename}"
+    huawei_client.force_downgrade = True
+    huawei_client.i_understand_downgrade_risk = True
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        # get_info() before upgrade (current=200)
+        _display_version("200"), _ESN, _display_startup("old.cc", "old.cc"),
+        # configure_next_startup
+        "", _display_startup("old.cc", downgrade_filename),
+        # get_info() after reboot (final=100, the downgraded version)
+        _display_version("100"), _ESN,
+        _display_startup(downgrade_filename, downgrade_filename),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(
+        huawei_client, "wait_for_reconnect", return_value=fake_conn,
+    )
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.success is True
+    assert result.metadata["downgrade_forced"] is True
+
+
+def test_upgrade_rejects_invalid_firmware_filename_before_upload(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = "/tmp/firmware.bin"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+    ]
+
+    mock_upload = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+    )
+
+    with pytest.raises(ValueError, match="firmware filename"):
+        huawei_client.upgrade()
+
+    mock_upload.assert_not_called()
+
+
+def test_upgrade_rejects_hardware_family_mismatch_before_upload(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = "/tmp/S6730_V300R024C00SPC200.cc"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        # display version reports model "AR651" (router), filename is S6730 (switch)
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+    ]
+
+    mock_upload = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+    )
+
+    with pytest.raises(ValueError, match="hardware"):
+        huawei_client.upgrade()
+
+    mock_upload.assert_not_called()
+
+
+def test_upgrade_rejects_patch_release_mismatch_before_upload(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC100"  # same as current
+    huawei_client.firmware_file = "/tmp/unused.cc"
+    huawei_client.patch_version = "ARV300R024SPH1b0"
+    huawei_client.patch_file = "/tmp/AR650A_V300R023SPH1b0.pat"  # wrong release train
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _display_patch_information("ARV300R024SPH1a0", "old.pat"),
+    ]
+
+    mock_upload = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+    )
+
+    with pytest.raises(ValueError, match="release train"):
+        huawei_client.upgrade()
+
+    mock_upload.assert_not_called()
 
 
 # ---------- upgrade workflow: MD5 verification (match / mismatch per branch) ----------

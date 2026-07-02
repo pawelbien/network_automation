@@ -40,6 +40,8 @@ class HuaweiVRP(BaseClient):
         reconnect_delay=10,
         lock_timeout=3600,
         lock_dir: str | None = None,
+        force_downgrade: bool = False,
+        i_understand_downgrade_risk: bool = False,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -76,6 +78,17 @@ class HuaweiVRP(BaseClient):
                               Defaults to a fixed subdirectory of the
                               system temp dir, shared by all HuaweiVRP
                               instances on this machine.
+        force_downgrade     — upgrade() rejects a target firmware/patch
+                              older than what's currently running unless
+                              this is True (default False). When True, the
+                              downgrade is logged at warning level and a
+                              best-effort configuration-compatibility
+                              warning is issued; requires
+                              i_understand_downgrade_risk=True as well.
+        i_understand_downgrade_risk — required second, explicit
+                              confirmation when force_downgrade=True
+                              (default False); upgrade() raises ValueError
+                              if force_downgrade is set without this.
         """
         super().__init__(
             context=context,
@@ -107,6 +120,8 @@ class HuaweiVRP(BaseClient):
         self.lock_dir = lock_dir or os.path.join(
             tempfile.gettempdir(), "network_automation_huawei_vrp_locks"
         )
+        self.force_downgrade = force_downgrade
+        self.i_understand_downgrade_risk = i_understand_downgrade_risk
 
     def get_info(self, *, return_result: bool = False):
         """Read device info (version, ESN, startup config) for all stack units."""

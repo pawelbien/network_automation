@@ -10,8 +10,7 @@ post-reboot verification.
 
 Deliberately out of scope for this pass (tracked as follow-up work):
 idempotency checks beyond the version comparison, pre/post health checks,
-flash cleanup, automatic rollback, concurrency locking, forced downgrade,
-and multi-unit/stack upgrades.
+flash cleanup, automatic rollback, and multi-unit/stack upgrades.
 """
 
 from pathlib import Path
@@ -21,6 +20,7 @@ from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 from network_automation.platforms.huawei_vrp.lock import device_lock
 from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, get_file_md5, _parse_startup
 from network_automation.platforms.huawei_vrp.upload import upload_files, compute_local_md5
+from network_automation.platforms.huawei_vrp.validation import validate_upgrade_inputs, warn_if_downgrade
 from network_automation.platforms.huawei_vrp.version import (
     determine_operation_type,
     parse_patch_version,
@@ -174,6 +174,11 @@ def upgrade(client, *, return_result: bool = False):
     Raises RuntimeError if the device reports more than one unit (stacks are
     not yet supported by this workflow), if an uploaded file's MD5 doesn't
     match the device-reported MD5, or if any other verification fails.
+    Raises DowngradeRejectedError (a RuntimeError) if the target firmware or
+    patch is older than what's currently running, unless client.force_downgrade
+    is set — see version.py. Raises ValueError on malformed firmware/patch
+    filenames or a hardware/release-train mismatch — see validation.py; this
+    check runs after determine_operation_type() but before any upload.
 
     Acquires an exclusive, host-scoped lock (see lock.py) before doing
     anything else — including before validating arguments — so a second
@@ -188,6 +193,11 @@ def upgrade(client, *, return_result: bool = False):
         if bool(client.patch_version) != bool(client.patch_file):
             raise ValueError(
                 "patch_version and patch_file must be provided together"
+            )
+        if client.force_downgrade and not client.i_understand_downgrade_risk:
+            raise ValueError(
+                "force_downgrade=True requires i_understand_downgrade_risk=True "
+                "as an explicit second confirmation."
             )
 
         result = OperationResult(
@@ -225,7 +235,8 @@ def upgrade(client, *, return_result: bool = False):
             result.metadata["current_patch"] = current_patch
 
             operation_type = determine_operation_type(
-                current_version, client.firmware_version, current_patch, client.patch_version
+                current_version, client.firmware_version, current_patch, client.patch_version,
+                force_downgrade=client.force_downgrade,
             )
             result.metadata["operation_type"] = operation_type
 
@@ -240,6 +251,15 @@ def upgrade(client, *, return_result: bool = False):
                 result.metadata["skipped"] = True
 
                 return result if return_result else None
+
+            if warn_if_downgrade(
+                client, current_version, client.firmware_version, current_patch, client.patch_version
+            ):
+                result.metadata["downgrade_forced"] = True
+
+            validate_upgrade_inputs(
+                client, unit_model=units[0]["model"], operation_type=operation_type
+            )
 
             if operation_type == OPERATION_PATCH_ONLY:
                 patch_path = Path(client.patch_file)

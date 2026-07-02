@@ -22,6 +22,16 @@ OPERATION_FIRMWARE_ONLY = "FIRMWARE_ONLY"
 OPERATION_FIRMWARE_AND_PATCH = "FIRMWARE_AND_PATCH"
 
 
+class DowngradeRejectedError(RuntimeError):
+    """
+    Raised by determine_operation_type() when a target firmware or patch
+    version is older than what's currently running, and force_downgrade
+    was not set. Subclasses RuntimeError for consistency with CLIError/
+    DeviceBusyError; kept distinct so callers can special-case "downgrade
+    attempted without explicit consent".
+    """
+
+
 def parse_firmware_version(software_version: str) -> tuple[int, int, int]:
     """
     Parse a VRP firmware version string into a comparable (major, release, spc) tuple.
@@ -46,6 +56,11 @@ def parse_firmware_version(software_version: str) -> tuple[int, int, int]:
 def is_firmware_newer(current: str, target: str) -> bool:
     """Return True if target firmware is strictly newer than current."""
     return parse_firmware_version(target) > parse_firmware_version(current)
+
+
+def is_firmware_older(current: str, target: str) -> bool:
+    """Return True if target firmware is strictly older than current (a downgrade)."""
+    return parse_firmware_version(target) < parse_firmware_version(current)
 
 
 def parse_patch_version(patch_version: str) -> tuple[int, int, int]:
@@ -88,11 +103,27 @@ def is_patch_newer(current: str | None, target: str) -> bool:
     return parse_patch_version(target) > parse_patch_version(current)
 
 
+def is_patch_older(current: str | None, target: str) -> bool:
+    """
+    Return True if target patch is strictly older than current (a downgrade).
+
+    current=None means no patch is currently installed, which can never be
+    a downgrade target — any parseable target is treated as new.
+    """
+    if current is None:
+        parse_patch_version(target)  # validate target; raises on bad format
+        return False
+
+    return parse_patch_version(target) < parse_patch_version(current)
+
+
 def determine_operation_type(
     current_firmware: str,
     target_firmware: str | None,
     current_patch: str | None,
     target_patch: str | None,
+    *,
+    force_downgrade: bool = False,
 ) -> str:
     """
     Decide which upgrade operation is required by comparing current vs.
@@ -102,18 +133,46 @@ def determine_operation_type(
         firmware newer + patch newer  -> FIRMWARE_AND_PATCH
         firmware newer + no patch     -> FIRMWARE_ONLY
         same firmware + patch newer   -> PATCH_ONLY
-        nothing newer                 -> NONE
+        nothing newer, nothing older  -> NONE
 
     target_patch=None means no patch upgrade was requested — the patch
     comparison is skipped entirely (no ValueError from an unset target).
-    """
-    fw_newer = is_firmware_newer(current_firmware, target_firmware) if target_firmware else False
-    patch_newer = is_patch_newer(current_patch, target_patch) if target_patch else False
 
-    if fw_newer and patch_newer:
+    A target that's strictly older than current (a downgrade) is never
+    silently folded into NONE: it raises DowngradeRejectedError unless
+    force_downgrade=True, in which case it's treated the same as "newer"
+    for the purpose of deciding which operation to run.
+    """
+    fw_changed = False
+    if target_firmware:
+        if is_firmware_newer(current_firmware, target_firmware):
+            fw_changed = True
+        elif is_firmware_older(current_firmware, target_firmware):
+            if not force_downgrade:
+                raise DowngradeRejectedError(
+                    f"Target firmware {target_firmware!r} is older than "
+                    f"current {current_firmware!r}; refusing downgrade "
+                    "unless force_downgrade=True."
+                )
+            fw_changed = True
+
+    patch_changed = False
+    if target_patch:
+        if is_patch_newer(current_patch, target_patch):
+            patch_changed = True
+        elif is_patch_older(current_patch, target_patch):
+            if not force_downgrade:
+                raise DowngradeRejectedError(
+                    f"Target patch {target_patch!r} is older than current "
+                    f"{current_patch!r}; refusing downgrade unless "
+                    "force_downgrade=True."
+                )
+            patch_changed = True
+
+    if fw_changed and patch_changed:
         return OPERATION_FIRMWARE_AND_PATCH
-    if fw_newer:
+    if fw_changed:
         return OPERATION_FIRMWARE_ONLY
-    if patch_newer:
+    if patch_changed:
         return OPERATION_PATCH_ONLY
     return OPERATION_NONE
