@@ -112,6 +112,7 @@ def test_get_memory_success():
     client = MagicMock()
     client.conn.send_command.return_value = _DISPLAY_MEMORY
     assert get_memory(client) == {"memory_usage_percent": 50.0}
+    client.conn.send_command.assert_called_once_with("display memory-usage")
 
 
 def test_get_alarm_active_success():

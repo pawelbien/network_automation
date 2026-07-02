@@ -49,7 +49,7 @@ def _parse_cpu_usage(output: str) -> dict:
 
 def _parse_memory(output: str) -> dict:
     """
-    Parse 'display memory' output.
+    Parse 'display memory-usage' output.
 
     Returns {"memory_usage_percent": float}.
     """
@@ -123,8 +123,8 @@ def get_cpu_usage(client) -> dict:
 
 
 def get_memory(client) -> dict:
-    """Runs: display memory. — no connect/disconnect."""
-    command = "display memory"
+    """Runs: display memory-usage. — no connect/disconnect."""
+    command = "display memory-usage"
     debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
     debug_log(client, "send_command response: %s", output)
