@@ -8,6 +8,7 @@ import re
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 
 
 def _parse_version(output):
@@ -298,7 +299,9 @@ def get_flash_info(client) -> dict:
       sequence.
     """
     command = "dir"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_dir(output)
 
@@ -314,7 +317,9 @@ def get_file_md5(client, filename: str) -> str:
       affects the get_info() command sequence.
     """
     command = f"display system file-md5 flash:/{filename}"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_file_md5(output)
 
@@ -331,7 +336,9 @@ def get_patch_info(client):
       command sequence.
     """
     command = "display patch-information"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_patch_information(output)
 
@@ -364,13 +371,19 @@ def get_info(client):
     """
     client.logger.info("Reading device info...")
 
+    debug_log(client, "send_command: %s", "display version")
     version_output = client.conn.send_command("display version")
+    debug_log(client, "send_command response: %s", version_output)
     _check_cli_output("display version", version_output)
 
+    debug_log(client, "send_command: %s", "display esn")
     esn_output = client.conn.send_command("display esn")
+    debug_log(client, "send_command response: %s", esn_output)
     _check_cli_output("display esn", esn_output)
 
+    debug_log(client, "send_command: %s", "display startup")
     startup_output = client.conn.send_command("display startup")
+    debug_log(client, "send_command response: %s", startup_output)
     _check_cli_output("display startup", startup_output)
 
     units = _parse_version(version_output)
@@ -424,4 +437,5 @@ def read_info(client, *, return_result: bool = False):
 
     finally:
         result.mark_finished()
+        debug_log(client, "read_info() result.metadata: %s", result.metadata)
         client.disconnect()

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from network_automation.results import OperationResult
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 
 
 # -------------------------------------------------------
@@ -85,4 +86,5 @@ def run_download(
 
     finally:
         result.mark_finished()
+        debug_log(client, "run_download() result.metadata: %s", result.metadata)
         client.disconnect()

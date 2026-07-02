@@ -15,6 +15,7 @@ startup_patch) nor anything else.
 from pathlib import Path
 
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 from network_automation.platforms.huawei_vrp.info import get_flash_info
 from network_automation.platforms.huawei_vrp.version import (
     OPERATION_FIRMWARE_AND_PATCH,
@@ -64,12 +65,17 @@ def _delete_file(client, filename: str) -> None:
       file" — verified against real device output) or otherwise doesn't
       report success
     """
-    output = client.conn.send_command_timing(f"delete flash:/{filename}")
+    command = f"delete flash:/{filename}"
+    debug_log(client, "send_command_timing: %s", command)
+    output = client.conn.send_command_timing(command)
+    debug_log(client, "send_command_timing response: %s", output)
 
     for _ in range(3):
         if "y/n" not in output.lower():
             break
+        debug_log(client, "send_command_timing: %s", "y")
         output = client.conn.send_command_timing("y")
+        debug_log(client, "send_command_timing response: %s", output)
 
     if "succeeded" not in output.lower():
         raise RuntimeError(f"Failed to delete flash:/{filename}: {output!r}")
@@ -111,17 +117,23 @@ def cleanup_flash(
 
     if backup_image_name and backup_image_name in candidates:
         command = f"startup system-software {startup_image_name} backup"
+        debug_log(client, "send_command: %s", command)
         ack = client.conn.send_command(command, read_timeout=300)
+        debug_log(client, "send_command response: %s", ack)
         _check_cli_output(command, ack)
 
     for filename in candidates:
         _delete_file(client, filename)
 
+    debug_log(client, "send_command_timing: %s", "reset recycle-bin")
     output = client.conn.send_command_timing("reset recycle-bin")
+    debug_log(client, "send_command_timing response: %s", output)
     for _ in range(3):
         if "y/n" not in output.lower():
             break
+        debug_log(client, "send_command_timing: %s", "y")
         output = client.conn.send_command_timing("y")
+        debug_log(client, "send_command_timing response: %s", output)
 
     return candidates
 

@@ -13,6 +13,7 @@ from network_automation.platforms.huawei_vrp.upload import run_upload
 from network_automation.platforms.huawei_vrp.info import read_info
 from network_automation.platforms.huawei_vrp.run import run as run_helper
 from network_automation.platforms.huawei_vrp.upgrade import upgrade as upgrade_helper
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 
 
 class HuaweiVRP(BaseClient):
@@ -211,12 +212,16 @@ class HuaweiVRP(BaseClient):
         # send_command_timing output here is an interactive [Y/N] confirmation
         # prompt, not command output to validate — the CLI-error check does
         # not apply to prompt-handling loops.
+        debug_log(self, "send_command_timing: %s", "reboot")
         output = self.conn.send_command_timing("reboot")
+        debug_log(self, "send_command_timing response: %s", output)
 
         for _ in range(3):
             if "y/n" not in output.lower():
                 break
+            debug_log(self, "send_command_timing: %s", "y")
             output = self.conn.send_command_timing("y")
+            debug_log(self, "send_command_timing response: %s", output)
 
         try:
             self.conn.disconnect()
@@ -254,11 +259,13 @@ class HuaweiVRP(BaseClient):
                 # Deliberately tolerant of garbled/incomplete output during
                 # device boot and already retried on any exception below, so
                 # the CLI-error check does not apply here.
+                debug_log(self, "send_command: %s", "display version")
                 out = conn.send_command(
                     "display version",
                     delay_factor=2,
                     read_timeout=10,
                 )
+                debug_log(self, "send_command response: %s", out)
 
                 if "vrp" in out.lower():
                     self.logger.info(

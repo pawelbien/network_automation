@@ -18,4 +18,5 @@ class ExecutionContext:
     device_name: str | None = None
     job_id: str | None = None
     dry_run: bool = False
+    debug_log: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)

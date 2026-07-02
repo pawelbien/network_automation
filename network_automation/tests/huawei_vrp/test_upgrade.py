@@ -1,6 +1,7 @@
 # network_automation/tests/huawei_vrp/test_upgrade.py
 
 import hashlib
+import logging
 
 import pytest
 from unittest.mock import MagicMock
@@ -1843,3 +1844,62 @@ def test_upgrade_dry_run_firmware_and_patch_skips_destructive_steps(mocker, huaw
     assert plan["would_configure_next_startup_patch"] is True
     assert plan["would_reboot"] is True
     assert "pre_upgrade_baseline_health" in result.metadata
+
+
+# ---------- Debug logging (opt-in DEBUG diagnostics) ----------
+
+def _mock_firmware_only_success(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        # get_info() before upgrade (current=100)
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        # configure_next_startup
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        # get_info() after reboot (final=200)
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+
+def test_upgrade_debug_log_off_by_default_no_debug_records(mocker, huawei_client, fake_conn, caplog):
+    caplog.set_level(logging.DEBUG)
+    _mock_firmware_only_success(mocker, huawei_client, fake_conn)
+
+    huawei_client.upgrade()
+
+    assert not any(r.levelname == "DEBUG" for r in caplog.records)
+
+
+def test_upgrade_debug_log_enabled_logs_step_timing_and_metadata(mocker, huawei_client, fake_conn, caplog):
+    caplog.set_level(logging.DEBUG)
+    huawei_client.context.debug_log = True
+    _mock_firmware_only_success(mocker, huawei_client, fake_conn)
+
+    huawei_client.upgrade()
+
+    debug_messages = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
+
+    assert any("run_pre_upgrade_health_check: starting" in m for m in debug_messages)
+    assert any("run_pre_upgrade_health_check: finished" in m for m in debug_messages)
+    assert any("configure_next_startup: starting" in m for m in debug_messages)
+    assert any("reboot_and_reconnect: starting" in m for m in debug_messages)
+    assert any(m.startswith("upgrade() result.metadata:") for m in debug_messages)
+    assert any("target_firmware" in m for m in debug_messages)

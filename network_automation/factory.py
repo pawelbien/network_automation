@@ -27,6 +27,10 @@ def get_client(**params):
       job_id       — job identifier attached to log messages.
       metadata     — arbitrary dict stored on the context.
       dry_run      — when True the client skips destructive operations.
+      debug_log    — when True, platform clients emit verbose DEBUG-level
+                     logs (raw CLI commands/responses, step timing, full
+                     operation metadata). Off by default; never changes
+                     behavior at the default logging level.
 
     All remaining keyword arguments are forwarded to the platform client
     constructor (host, username, password, …).
@@ -44,6 +48,7 @@ def get_client(**params):
             job_id=params.pop("job_id", None),
             metadata=params.pop("metadata", None),
             dry_run=params.pop("dry_run", False),
+            debug_log=params.pop("debug_log", False),
         )
 
     # -------------------------------------------------

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.debug_log import debug_log, debug_timed_step
 from network_automation.platforms.huawei_vrp.flash import ensure_flash_space
 from network_automation.platforms.huawei_vrp.health_check import (
     run_pre_upgrade_health_check,
@@ -51,10 +52,14 @@ def configure_next_startup(client, filename: str):
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
     command = f"startup system-software flash:/{filename}"
+    debug_log(client, "send_command: %s", command)
     ack = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", ack)
     _check_cli_output(command, ack, expect_content=False)
 
+    debug_log(client, "send_command: %s", "display startup")
     startup_output = client.conn.send_command("display startup")
+    debug_log(client, "send_command response: %s", startup_output)
     _check_cli_output("display startup", startup_output)
     startup = _parse_startup(startup_output)
     master = startup.get("master", {})
@@ -75,10 +80,14 @@ def configure_next_startup_patch(client, filename: str):
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
     command = f"startup patch flash:/{filename}"
+    debug_log(client, "send_command: %s", command)
     ack = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", ack)
     _check_cli_output(command, ack, expect_content=False)
 
+    debug_log(client, "send_command: %s", "display startup")
     startup_output = client.conn.send_command("display startup")
+    debug_log(client, "send_command response: %s", startup_output)
     _check_cli_output("display startup", startup_output)
     startup = _parse_startup(startup_output)
     master = startup.get("master", {})
@@ -146,7 +155,9 @@ def apply_patch(client, filename: str, expected_patch_version: str):
     - raises RuntimeError if the patch isn't running or the version mismatches
     """
     command = f"patch load flash:/{filename} all run"
+    debug_log(client, "send_command: %s", command)
     ack = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", ack)
     _check_cli_output(command, ack, expect_content=False)
     return _verify_patch_active(client, expected_patch_version)
 
@@ -160,12 +171,16 @@ def save_configuration(client):
     # send_command_timing output here is an interactive [Y/N] confirmation
     # prompt, not command output to validate — the CLI-error check does not
     # apply to prompt-handling loops.
+    debug_log(client, "send_command_timing: %s", "save")
     output = client.conn.send_command_timing("save")
+    debug_log(client, "send_command_timing response: %s", output)
 
     for _ in range(3):
         if "y/n" not in output.lower():
             break
+        debug_log(client, "send_command_timing: %s", "y")
         output = client.conn.send_command_timing("y")
+        debug_log(client, "send_command_timing response: %s", output)
 
 
 def _upload_pending(client, result, paths: list[Path]) -> dict:
@@ -322,7 +337,8 @@ def upgrade(client, *, return_result: bool = False):
             ):
                 result.metadata["downgrade_forced"] = True
 
-            run_pre_upgrade_health_check(client, result, mode=client.health_check_mode)
+            with debug_timed_step(client, "run_pre_upgrade_health_check"):
+                run_pre_upgrade_health_check(client, result, mode=client.health_check_mode)
 
             dry_run = client.context.dry_run
 
@@ -331,14 +347,16 @@ def upgrade(client, *, return_result: bool = False):
             # Skipped in dry-run (Faza 14): it's itself a state-changing
             # device command, not a read/validation/comparison step.
             if not dry_run:
-                save_configuration(client)
+                with debug_timed_step(client, "pre_upgrade_save_configuration"):
+                    save_configuration(client)
                 result.metadata["pre_upgrade_backup_performed"] = True
 
             validate_upgrade_inputs(
                 client, unit_model=units[0]["model"], operation_type=operation_type
             )
 
-            ensure_flash_space(client, result, operation_type, units, dry_run=dry_run)
+            with debug_timed_step(client, "ensure_flash_space"):
+                ensure_flash_space(client, result, operation_type, units, dry_run=dry_run)
 
             if dry_run:
                 # All read/validation/comparison phases above already ran
@@ -399,7 +417,8 @@ def upgrade(client, *, return_result: bool = False):
 
             if operation_type == OPERATION_PATCH_ONLY:
                 patch_path = Path(client.patch_file)
-                result.metadata["md5_results"] = _upload_pending(client, result, [patch_path])
+                with debug_timed_step(client, "_upload_pending"):
+                    result.metadata["md5_results"] = _upload_pending(client, result, [patch_path])
                 result.metadata["uploaded_patch_file"] = patch_path.name
                 result.metadata["md5_verified"] = True
 
@@ -408,7 +427,8 @@ def upgrade(client, *, return_result: bool = False):
                     client.logger.info("Skipping apply_patch: %s", msg)
                     result.metadata.setdefault("skipped_steps", {})["apply_patch"] = msg
                 else:
-                    apply_patch(client, patch_path.name, client.patch_version)
+                    with debug_timed_step(client, "apply_patch"):
+                        apply_patch(client, patch_path.name, client.patch_version)
 
                 save_configuration(client)
 
@@ -427,7 +447,8 @@ def upgrade(client, *, return_result: bool = False):
                 patch_path = Path(client.patch_file)
                 files_to_upload.append(patch_path)
 
-            md5_results = _upload_pending(client, result, files_to_upload)
+            with debug_timed_step(client, "_upload_pending"):
+                md5_results = _upload_pending(client, result, files_to_upload)
             result.metadata["uploaded_file"] = firmware_path.name
 
             if operation_type == OPERATION_FIRMWARE_AND_PATCH:
@@ -442,7 +463,8 @@ def upgrade(client, *, return_result: bool = False):
                 client.logger.info("Skipping configure_next_startup: %s", msg)
                 result.metadata.setdefault("skipped_steps", {})["configure_next_startup"] = msg
             else:
-                configure_next_startup(client, firmware_path.name)
+                with debug_timed_step(client, "configure_next_startup"):
+                    configure_next_startup(client, firmware_path.name)
 
             if operation_type == OPERATION_FIRMWARE_AND_PATCH:
                 next_startup_patch = units[0].get("next_startup_patch") or ""
@@ -451,7 +473,8 @@ def upgrade(client, *, return_result: bool = False):
                     client.logger.info("Skipping configure_next_startup_patch: %s", msg)
                     result.metadata.setdefault("skipped_steps", {})["configure_next_startup_patch"] = msg
                 else:
-                    configure_next_startup_patch(client, patch_path.name)
+                    with debug_timed_step(client, "configure_next_startup_patch"):
+                        configure_next_startup_patch(client, patch_path.name)
 
             if already_running_target(client, client.firmware_version, client.patch_version):
                 msg = "device already running target firmware/patch"
@@ -465,11 +488,12 @@ def upgrade(client, *, return_result: bool = False):
                     client.firmware_version,
                 )
 
-                reboot_started = time.monotonic()
-                client.reboot()
-                client.conn = client.wait_for_reconnect()
-                result.metadata["rebooted"] = True
-                result.metadata["reboot_duration_seconds"] = time.monotonic() - reboot_started
+                with debug_timed_step(client, "reboot_and_reconnect"):
+                    reboot_started = time.monotonic()
+                    client.reboot()
+                    client.conn = client.wait_for_reconnect()
+                    result.metadata["rebooted"] = True
+                    result.metadata["reboot_duration_seconds"] = time.monotonic() - reboot_started
 
                 info_after = get_info(client)
 
@@ -494,16 +518,17 @@ def upgrade(client, *, return_result: bool = False):
             # into post_reboot_validation_passed.
             result.metadata["post_upgrade_uptime"] = info_after["units"][0].get("uptime_raw")
 
-            routing_info = get_ip_routing_table(client)
-            routing_result = validate_routing_restored(routing_info)
+            with debug_timed_step(client, "post_reboot_validation"):
+                routing_info = get_ip_routing_table(client)
+                routing_result = validate_routing_restored(routing_info)
 
-            post_health_snapshot = collect_health_snapshot(client)
-            interface_comparison = compare_interfaces_to_baseline(
-                result.metadata["pre_upgrade_baseline_health"], post_health_snapshot,
-            )
-            alarm_comparison = compare_health_to_baseline(
-                result.metadata["pre_upgrade_baseline_health"], post_health_snapshot,
-            )
+                post_health_snapshot = collect_health_snapshot(client)
+                interface_comparison = compare_interfaces_to_baseline(
+                    result.metadata["pre_upgrade_baseline_health"], post_health_snapshot,
+                )
+                alarm_comparison = compare_health_to_baseline(
+                    result.metadata["pre_upgrade_baseline_health"], post_health_snapshot,
+                )
 
             result.metadata["routing_validation"] = routing_result
             result.metadata["post_upgrade_health"] = post_health_snapshot
@@ -529,4 +554,5 @@ def upgrade(client, *, return_result: bool = False):
 
         finally:
             result.mark_finished()
+            debug_log(client, "upgrade() result.metadata: %s", result.metadata)
             client.disconnect()

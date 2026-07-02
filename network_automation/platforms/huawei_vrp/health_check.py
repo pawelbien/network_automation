@@ -16,6 +16,7 @@ Tier-1 style: no connection lifecycle, raises on failure.
 import re
 
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 
 DEFAULT_CPU_THRESHOLD_PERCENT = 80.0
 DEFAULT_MEMORY_THRESHOLD_PERCENT = 80.0
@@ -108,7 +109,9 @@ def _parse_interface_brief(output: str) -> dict:
 def get_cpu_usage(client) -> dict:
     """Runs: display cpu-usage. — no connect/disconnect."""
     command = "display cpu-usage"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_cpu_usage(output)
 
@@ -116,7 +119,9 @@ def get_cpu_usage(client) -> dict:
 def get_memory(client) -> dict:
     """Runs: display memory. — no connect/disconnect."""
     command = "display memory"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_memory(output)
 
@@ -129,7 +134,9 @@ def get_alarm_active(client) -> dict:
     device response, not a CLI error.
     """
     command = "display alarm active"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output, expect_content=False)
     return _parse_alarm_active(output)
 
@@ -137,7 +144,9 @@ def get_alarm_active(client) -> dict:
 def get_interface_brief(client) -> dict:
     """Runs: display interface brief. — no connect/disconnect."""
     command = "display interface brief"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_interface_brief(output)
 
@@ -235,7 +244,9 @@ def _parse_ip_routing_table(output: str) -> dict:
 def get_ip_routing_table(client) -> dict:
     """Runs: display ip routing-table. — no connect/disconnect."""
     command = "display ip routing-table"
+    debug_log(client, "send_command: %s", command)
     output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_ip_routing_table(output)
 

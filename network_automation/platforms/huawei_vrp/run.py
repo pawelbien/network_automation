@@ -6,6 +6,7 @@ Huawei VRP command execution helpers.
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 
 
 def run_commands(client, commands):
@@ -25,7 +26,9 @@ def run_commands(client, commands):
     for cmd in commands:
         client.logger.info("Running command: %s", cmd)
 
+        debug_log(client, "send_command: %s", cmd)
         output = client.conn.send_command(cmd)
+        debug_log(client, "send_command response: %s", output)
         _check_cli_output(cmd, output)
 
         outputs.append(
@@ -82,4 +85,5 @@ def run(
 
     finally:
         result.mark_finished()
+        debug_log(client, "run() result.metadata: %s", result.metadata)
         client.disconnect()

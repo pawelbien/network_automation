@@ -4,6 +4,7 @@ import hashlib
 import time
 from pathlib import Path
 from network_automation.results import OperationResult
+from network_automation.platforms.huawei_vrp.debug_log import debug_log
 from network_automation.platforms.huawei_vrp.info import get_flash_info
 
 # Fixed pause between upload_with_retry() attempts. Not user-configurable —
@@ -153,6 +154,11 @@ def upload_with_retry(
                         "Uploading %s → %s (attempt %d/%d)",
                         path, remote_path, attempt, retries,
                     )
+                    debug_log(
+                        client,
+                        "upload attempt %d/%d starting: %s -> %s",
+                        attempt, retries, path, remote_path,
+                    )
                     sftp.put(str(path), remote_path)
             finally:
                 sftp.close()
@@ -238,4 +244,5 @@ def run_upload(
 
     finally:
         result.mark_finished()
+        debug_log(client, "run_upload() result.metadata: %s", result.metadata)
         client.disconnect()
