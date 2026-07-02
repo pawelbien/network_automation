@@ -9,14 +9,19 @@ MD5 verification, startup configuration, hot patch apply, reboot, and
 post-reboot verification.
 
 Deliberately out of scope for this pass (tracked as follow-up work):
-idempotency checks beyond the version comparison, pre/post health checks,
-flash cleanup, automatic rollback, and multi-unit/stack upgrades.
+pre/post health checks, flash cleanup, automatic rollback, and
+multi-unit/stack upgrades.
 """
 
 from pathlib import Path
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
+from network_automation.platforms.huawei_vrp.idempotency import (
+    already_running_target,
+    file_already_on_flash,
+    patch_already_active,
+)
 from network_automation.platforms.huawei_vrp.lock import device_lock
 from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, get_file_md5, _parse_startup
 from network_automation.platforms.huawei_vrp.upload import upload_files, compute_local_md5
@@ -155,6 +160,35 @@ def save_configuration(client):
         output = client.conn.send_command_timing("y")
 
 
+def _upload_pending(client, result, paths: list[Path]) -> dict:
+    """
+    Upload only the files in `paths` that aren't already on flash with a
+    matching MD5 (idempotent resume after an interruption) — one batched
+    upload_files() call for whatever's still pending, matching prior
+    behavior when nothing is skipped. Records each skip in
+    result.metadata["skipped_steps"]. Returns {filename: md5_result}.
+    """
+    md5_results = {}
+    pending = []
+
+    for path in paths:
+        already_present, md5_result = file_already_on_flash(client, path)
+        if already_present:
+            msg = f"{path.name} already on flash with matching MD5"
+            client.logger.info("Skipping upload: %s", msg)
+            result.metadata.setdefault("skipped_steps", {})[f"upload_{path.name}"] = msg
+            md5_results[path.name] = md5_result
+        else:
+            pending.append(path)
+
+    if pending:
+        upload_files(client, files=pending, remote_dir="flash:/")
+        for path in pending:
+            md5_results[path.name] = verify_md5(client, path)
+
+    return md5_results
+
+
 def upgrade(client, *, return_result: bool = False):
     """
     Run the upgrade workflow for a single-unit device: firmware, patch, or
@@ -184,6 +218,12 @@ def upgrade(client, *, return_result: bool = False):
     anything else — including before validating arguments — so a second
     concurrent upgrade() against the same device aborts immediately with
     DeviceBusyError instead of racing this one.
+
+    Idempotent: before each state-changing step (upload, apply_patch,
+    configure_next_startup[_patch], reboot) checks whether it's already
+    done — see idempotency.py — so re-running after an interruption is
+    safe. Every skipped step is logged and recorded in
+    result.metadata["skipped_steps"].
     """
     with device_lock(client):
         if not client.firmware_version:
@@ -263,15 +303,17 @@ def upgrade(client, *, return_result: bool = False):
 
             if operation_type == OPERATION_PATCH_ONLY:
                 patch_path = Path(client.patch_file)
-                upload_files(client, files=[patch_path], remote_dir="flash:/")
+                result.metadata["md5_results"] = _upload_pending(client, result, [patch_path])
                 result.metadata["uploaded_patch_file"] = patch_path.name
-
-                result.metadata["md5_results"] = {
-                    patch_path.name: verify_md5(client, patch_path)
-                }
                 result.metadata["md5_verified"] = True
 
-                apply_patch(client, patch_path.name, client.patch_version)
+                if patch_already_active(client, client.patch_version):
+                    msg = f"patch {client.patch_version} already active"
+                    client.logger.info("Skipping apply_patch: %s", msg)
+                    result.metadata.setdefault("skipped_steps", {})["apply_patch"] = msg
+                else:
+                    apply_patch(client, patch_path.name, client.patch_version)
+
                 save_configuration(client)
 
                 msg = f"Patch applied successfully: {client.patch_version}"
@@ -289,34 +331,50 @@ def upgrade(client, *, return_result: bool = False):
                 patch_path = Path(client.patch_file)
                 files_to_upload.append(patch_path)
 
-            upload_files(client, files=files_to_upload, remote_dir="flash:/")
+            md5_results = _upload_pending(client, result, files_to_upload)
             result.metadata["uploaded_file"] = firmware_path.name
-
-            md5_results = {firmware_path.name: verify_md5(client, firmware_path)}
 
             if operation_type == OPERATION_FIRMWARE_AND_PATCH:
                 result.metadata["uploaded_patch_file"] = patch_path.name
-                md5_results[patch_path.name] = verify_md5(client, patch_path)
 
             result.metadata["md5_results"] = md5_results
             result.metadata["md5_verified"] = True
 
-            configure_next_startup(client, firmware_path.name)
+            next_startup = units[0].get("next_startup_image") or ""
+            if next_startup.endswith(firmware_path.name):
+                msg = f"next_startup_image already points to {firmware_path.name}"
+                client.logger.info("Skipping configure_next_startup: %s", msg)
+                result.metadata.setdefault("skipped_steps", {})["configure_next_startup"] = msg
+            else:
+                configure_next_startup(client, firmware_path.name)
 
             if operation_type == OPERATION_FIRMWARE_AND_PATCH:
-                configure_next_startup_patch(client, patch_path.name)
+                next_startup_patch = units[0].get("next_startup_patch") or ""
+                if next_startup_patch.endswith(patch_path.name):
+                    msg = f"next_startup_patch already points to {patch_path.name}"
+                    client.logger.info("Skipping configure_next_startup_patch: %s", msg)
+                    result.metadata.setdefault("skipped_steps", {})["configure_next_startup_patch"] = msg
+                else:
+                    configure_next_startup_patch(client, patch_path.name)
 
-            client.logger.info(
-                "Upgrade: %s -> %s — reboot required",
-                current_version,
-                client.firmware_version,
-            )
+            if already_running_target(client, client.firmware_version, client.patch_version):
+                msg = "device already running target firmware/patch"
+                client.logger.info("Skipping reboot: %s", msg)
+                result.metadata.setdefault("skipped_steps", {})["reboot"] = msg
+                info_after = get_info(client)
+            else:
+                client.logger.info(
+                    "Upgrade: %s -> %s — reboot required",
+                    current_version,
+                    client.firmware_version,
+                )
 
-            client.reboot()
-            client.conn = client.wait_for_reconnect()
-            result.metadata["rebooted"] = True
+                client.reboot()
+                client.conn = client.wait_for_reconnect()
+                result.metadata["rebooted"] = True
 
-            info_after = get_info(client)
+                info_after = get_info(client)
+
             final_version = info_after["units"][0]["software_version"]
             result.metadata["new_firmware"] = final_version
 
