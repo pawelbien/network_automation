@@ -128,7 +128,9 @@ def cleanup_flash(
     return candidates
 
 
-def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -> None:
+def ensure_flash_space(
+    client, result, operation_type: str, units: list[dict], *, dry_run: bool = False,
+) -> None:
     """
     Compute required_space for the files `operation_type` needs, and if
     free flash space is insufficient, run cleanup_flash() and recheck.
@@ -137,8 +139,14 @@ def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -
     and ["flash_cleanup_performed"]/["deleted_files"] (both only set when
     cleanup actually ran — Faza 13).
 
-    Raises RuntimeError if space is still insufficient after cleanup —
-    always before any upload.
+    dry_run=True (Faza 14): if cleanup would be needed, records
+    result.metadata["flash_cleanup_would_run"] = True instead of calling
+    cleanup_flash() (which deletes files) — no RuntimeError is raised in
+    this case, since dry-run only reports a plan, it doesn't attempt to
+    prove the plan is feasible without actually deleting anything.
+
+    Raises RuntimeError if space is still insufficient after cleanup (not
+    in dry-run mode) — always before any upload.
 
     - no connect/disconnect
     """
@@ -182,6 +190,10 @@ def ensure_flash_space(client, result, operation_type: str, units: list[dict]) -
         "Insufficient flash space (%d bytes free, %d required) — running cleanup",
         flash_info["free_bytes"], required,
     )
+
+    if dry_run:
+        result.metadata["flash_cleanup_would_run"] = True
+        return
 
     deleted = cleanup_flash(
         client,

@@ -240,6 +240,34 @@ def test_ensure_flash_space_runs_cleanup_when_insufficient(mocker, tmp_path):
     assert result.metadata["deleted_files"] == ["orphan.cc"]
 
 
+def test_ensure_flash_space_dry_run_skips_cleanup(mocker, tmp_path):
+    firmware_file = tmp_path / "fw.cc"
+    firmware_file.write_bytes(b"x" * 1000)
+    client = _client_with_flash(mocker, free_bytes=100)
+    client.firmware_file = str(firmware_file)
+    client.patch_file = None
+    result = SimpleNamespace(metadata={})
+
+    mock_cleanup = mocker.patch(
+        "network_automation.platforms.huawei_vrp.flash.cleanup_flash"
+    )
+
+    units = [{
+        "startup_image": "flash:/AR650A_V300R023C00SPC100.cc",
+        "next_startup_image": "flash:/AR650A_V300R023C00SPC100.cc",
+        "backup_image": "flash:/AR650A_V300R022C00SPC100.cc",
+        "startup_patch": None,
+        "next_startup_patch": None,
+    }]
+
+    ensure_flash_space(client, result, OPERATION_FIRMWARE_ONLY, units, dry_run=True)
+
+    mock_cleanup.assert_not_called()
+    assert result.metadata["flash_cleanup_would_run"] is True
+    assert "flash_cleanup_performed" not in result.metadata
+    assert "deleted_files" not in result.metadata
+
+
 def test_ensure_flash_space_raises_when_still_insufficient_after_cleanup(mocker, tmp_path):
     firmware_file = tmp_path / "fw.cc"
     firmware_file.write_bytes(b"x" * 1000)

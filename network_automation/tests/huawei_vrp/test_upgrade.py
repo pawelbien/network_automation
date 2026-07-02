@@ -1732,3 +1732,116 @@ def test_upgrade_full_report_shape_contains_all_expected_fields(mocker, huawei_c
     assert "signature_verification" not in result.metadata
     assert "outcome" not in result.metadata
     assert "rollback_attempted" not in result.metadata
+
+
+# ---------- upgrade workflow: dry_run (Faza 14) ----------
+
+def test_upgrade_dry_run_patch_only_skips_destructive_steps(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC100"  # same as current -> PATCH_ONLY
+    huawei_client.firmware_file = "/tmp/unused.cc"
+    huawei_client.patch_version = "ARV300R024SPH1b0"
+    huawei_client.patch_file = f"/tmp/{PATCH_FILENAME}"
+    huawei_client.context.dry_run = True
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _display_patch_information("ARV300R024SPH1a0", "old.pat"),
+    ]
+
+    mock_upload = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry")
+    mock_apply = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.apply_patch")
+    mock_save = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.save_configuration")
+
+    result = huawei_client.upgrade(return_result=True)
+
+    mock_upload.assert_not_called()
+    mock_apply.assert_not_called()
+    mock_save.assert_not_called()
+    assert result.metadata["dry_run"] is True
+    plan = result.metadata["execution_plan"]
+    assert plan["operation_type"] == "PATCH_ONLY"
+    assert plan["would_upload"] == [PATCH_FILENAME]
+    assert plan["would_apply_patch"] is True
+    # read/validation phases (health check) still ran normally
+    assert "pre_upgrade_baseline_health" in result.metadata
+
+
+def test_upgrade_dry_run_firmware_only_skips_destructive_steps(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.context.dry_run = True
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+    ]
+
+    mock_upload = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry")
+    mock_configure = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.configure_next_startup")
+    mock_reboot = mocker.patch.object(huawei_client, "reboot")
+    mock_save = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.save_configuration")
+
+    result = huawei_client.upgrade(return_result=True)
+
+    mock_upload.assert_not_called()
+    mock_configure.assert_not_called()
+    mock_reboot.assert_not_called()
+    mock_save.assert_not_called()
+    assert result.metadata["dry_run"] is True
+    plan = result.metadata["execution_plan"]
+    assert plan["operation_type"] == "FIRMWARE_ONLY"
+    assert plan["would_upload"] == [TARGET_FILENAME]
+    assert plan["would_configure_next_startup"] is True
+    assert plan["would_reboot"] is True
+    assert "pre_upgrade_baseline_health" in result.metadata
+
+
+def test_upgrade_dry_run_firmware_and_patch_skips_destructive_steps(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.patch_version = "ARV300R024SPH1b0"
+    huawei_client.patch_file = f"/tmp/{PATCH_FILENAME}"
+    huawei_client.context.dry_run = True
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _display_patch_information("ARV300R024SPH1a0", "old.pat"),
+    ]
+
+    mock_upload = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry")
+    mock_configure = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.configure_next_startup")
+    mock_configure_patch = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup_patch"
+    )
+    mock_reboot = mocker.patch.object(huawei_client, "reboot")
+    mock_save = mocker.patch("network_automation.platforms.huawei_vrp.upgrade.save_configuration")
+
+    result = huawei_client.upgrade(return_result=True)
+
+    mock_upload.assert_not_called()
+    mock_configure.assert_not_called()
+    mock_configure_patch.assert_not_called()
+    mock_reboot.assert_not_called()
+    mock_save.assert_not_called()
+    assert result.metadata["dry_run"] is True
+    plan = result.metadata["execution_plan"]
+    assert plan["operation_type"] == "FIRMWARE_AND_PATCH"
+    assert plan["would_upload"] == [TARGET_FILENAME, PATCH_FILENAME]
+    assert plan["would_configure_next_startup"] is True
+    assert plan["would_configure_next_startup_patch"] is True
+    assert plan["would_reboot"] is True
+    assert "pre_upgrade_baseline_health" in result.metadata

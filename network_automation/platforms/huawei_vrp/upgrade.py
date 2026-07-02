@@ -325,16 +325,78 @@ def upgrade(client, *, return_result: bool = False):
 
             run_pre_upgrade_health_check(client, result, mode=client.health_check_mode)
 
+            dry_run = client.context.dry_run
+
             # Explicit pre-upgrade backup, in addition to the existing
             # post-upgrade save — before any state-changing step below.
-            save_configuration(client)
-            result.metadata["pre_upgrade_backup_performed"] = True
+            # Skipped in dry-run (Faza 14): it's itself a state-changing
+            # device command, not a read/validation/comparison step.
+            if not dry_run:
+                save_configuration(client)
+                result.metadata["pre_upgrade_backup_performed"] = True
 
             validate_upgrade_inputs(
                 client, unit_model=units[0]["model"], operation_type=operation_type
             )
 
-            ensure_flash_space(client, result, operation_type, units)
+            ensure_flash_space(client, result, operation_type, units, dry_run=dry_run)
+
+            if dry_run:
+                # All read/validation/comparison phases above already ran
+                # normally (health check, version comparison, flash space
+                # calculation, input validation) — only the plan for the
+                # remaining destructive steps (upload, delete, configure
+                # next startup, apply patch, reboot, save) is computed here,
+                # reusing the same read-only idempotency checks the real
+                # run would use, without calling any of them for real.
+                execution_plan = {"operation_type": operation_type}
+
+                if operation_type == OPERATION_PATCH_ONLY:
+                    patch_path = Path(client.patch_file)
+                    already_present, _ = file_already_on_flash(client, patch_path)
+                    execution_plan["would_upload"] = [] if already_present else [patch_path.name]
+                    execution_plan["would_apply_patch"] = not patch_already_active(
+                        client, client.patch_version
+                    )
+                else:
+                    firmware_path = Path(client.firmware_file)
+                    would_upload = []
+                    already_present, _ = file_already_on_flash(client, firmware_path)
+                    if not already_present:
+                        would_upload.append(firmware_path.name)
+
+                    if operation_type == OPERATION_FIRMWARE_AND_PATCH:
+                        patch_path = Path(client.patch_file)
+                        already_present, _ = file_already_on_flash(client, patch_path)
+                        if not already_present:
+                            would_upload.append(patch_path.name)
+
+                    execution_plan["would_upload"] = would_upload
+
+                    next_startup = units[0].get("next_startup_image") or ""
+                    execution_plan["would_configure_next_startup"] = (
+                        not next_startup.endswith(firmware_path.name)
+                    )
+
+                    if operation_type == OPERATION_FIRMWARE_AND_PATCH:
+                        next_startup_patch = units[0].get("next_startup_patch") or ""
+                        execution_plan["would_configure_next_startup_patch"] = (
+                            not next_startup_patch.endswith(patch_path.name)
+                        )
+
+                    execution_plan["would_reboot"] = not already_running_target(
+                        client, client.firmware_version, client.patch_version
+                    )
+
+                execution_plan["flash_cleanup_would_run"] = result.metadata.get(
+                    "flash_cleanup_would_run", False
+                )
+
+                result.metadata["dry_run"] = True
+                result.metadata["execution_plan"] = execution_plan
+                result.message = "Dry run: execution plan generated, no changes made."
+
+                return result if return_result else None
 
             if operation_type == OPERATION_PATCH_ONLY:
                 patch_path = Path(client.patch_file)
