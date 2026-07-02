@@ -26,16 +26,24 @@ _FAKE_MD5_RESULT = {"expected_md5": "d" * 32, "actual_md5": "d" * 32, "match": T
 _NOT_ON_FLASH = (False, {"expected_md5": None, "actual_md5": None, "match": False})
 
 
+_PASSING_HEALTH_EVALUATION = {"violations": [], "passed": True}
+
+
 @pytest.fixture(autouse=True)
 def _no_idempotency_skips(mocker):
     """
     Default all idempotency pre-checks (Faza 7 — idempotency.py) to "not
-    already done", and the flash-space check (Faza 8 — flash.py) to a
-    no-op, so existing tests exercise the full upload/apply/reboot flow
-    unchanged without needing a real local firmware/patch file on disk or
-    a mocked 'dir' response. Tests that specifically exercise skip/cleanup
-    behavior override these within the test body (mocker.patch again, or
-    drive the real functions directly — see test_idempotency.py/test_flash.py).
+    already done", the flash-space check (Faza 8 — flash.py) to a no-op,
+    the pre-upgrade health check (Faza 10 — health_check.py) to a passing
+    no-op, and save_configuration (called twice per Faza 10 — once as a
+    pre-upgrade backup, once post-upgrade) to a no-op, so existing tests
+    exercise the full upload/apply/reboot flow unchanged without needing a
+    real local firmware/patch file on disk, a mocked 'dir' response, or
+    scripted cpu-usage/memory/alarm/interface/save commands. Tests that
+    specifically exercise skip/cleanup/health-check/save behavior override
+    these within the test body (mocker.patch again, or drive the real
+    functions directly — see test_idempotency.py/test_flash.py/
+    test_health_check.py).
     """
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.file_already_on_flash",
@@ -51,6 +59,13 @@ def _no_idempotency_skips(mocker):
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.ensure_flash_space",
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.run_pre_upgrade_health_check",
+        return_value=_PASSING_HEALTH_EVALUATION,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.save_configuration",
     )
 
 
@@ -304,7 +319,8 @@ def test_upgrade_skipped_if_not_newer(mocker, huawei_client, fake_conn):
     ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     huawei_client.upgrade()
@@ -332,7 +348,8 @@ def test_upgrade_success(mocker, huawei_client, fake_conn):
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
@@ -392,7 +409,8 @@ def test_upgrade_version_mismatch_raises(mocker, huawei_client, fake_conn):
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
@@ -424,8 +442,8 @@ def test_upgrade_returns_result(monkeypatch, huawei_client):
         },
     )
     monkeypatch.setattr(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files",
-        lambda client, **kwargs: None,
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        lambda client, **kwargs: {},
     )
     monkeypatch.setattr(
         "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup",
@@ -493,16 +511,17 @@ def test_upgrade_patch_only(mocker, huawei_client, fake_conn):
         # _verify_patch_active: get_patch_info() after apply
         _display_patch_information("ARV300R024SPH1b0", PATCH_FILENAME),
     ]
-    fake_conn.send_command_timing.side_effect = [
-        "Save the configuration successfully.",
-    ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
         return_value=_FAKE_MD5_RESULT,
+    )
+    mock_save = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.save_configuration"
     )
 
     result = huawei_client.upgrade(return_result=True)
@@ -510,7 +529,9 @@ def test_upgrade_patch_only(mocker, huawei_client, fake_conn):
     mock_upload.assert_called_once()
     assert result.metadata["operation_type"] == "PATCH_ONLY"
     assert result.metadata["md5_verified"] is True
-    assert fake_conn.send_command_timing.call_count == 1
+    # pre-upgrade backup (Faza 10) + post-upgrade save = 2 calls
+    assert mock_save.call_count == 2
+    assert result.metadata["pre_upgrade_backup_performed"] is True
 
 
 def test_upgrade_firmware_and_patch(mocker, huawei_client, fake_conn):
@@ -539,16 +560,16 @@ def test_upgrade_firmware_and_patch(mocker, huawei_client, fake_conn):
         # _verify_patch_active after reboot
         _display_patch_information("ARV300R024SPH1b0", PATCH_FILENAME),
     ]
-    fake_conn.send_command_timing.side_effect = [
-        "Save the configuration successfully.",
-    ]
-
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
         return_value=_FAKE_MD5_RESULT,
+    )
+    mock_save = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.save_configuration"
     )
 
     mocker.patch.object(huawei_client, "reboot")
@@ -563,7 +584,8 @@ def test_upgrade_firmware_and_patch(mocker, huawei_client, fake_conn):
     huawei_client.reboot.assert_called_once()
     assert result.metadata["operation_type"] == "FIRMWARE_AND_PATCH"
     assert result.metadata["md5_verified"] is True
-    assert fake_conn.send_command_timing.call_count == 1
+    # pre-upgrade backup (Faza 10) + post-upgrade save = 2 calls
+    assert mock_save.call_count == 2
 
 
 def test_upgrade_none_skips_when_nothing_newer(mocker, huawei_client, fake_conn):
@@ -584,7 +606,8 @@ def test_upgrade_none_skips_when_nothing_newer(mocker, huawei_client, fake_conn)
     ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     result = huawei_client.upgrade(return_result=True)
@@ -610,7 +633,8 @@ def test_upgrade_downgrade_rejected_by_default(mocker, huawei_client, fake_conn)
     ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     with pytest.raises(DowngradeRejectedError):
@@ -656,7 +680,8 @@ def test_upgrade_force_downgrade_with_confirmation_succeeds(mocker, huawei_clien
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
@@ -687,7 +712,8 @@ def test_upgrade_rejects_invalid_firmware_filename_before_upload(mocker, huawei_
     ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     with pytest.raises(ValueError, match="firmware filename"):
@@ -711,7 +737,8 @@ def test_upgrade_rejects_hardware_family_mismatch_before_upload(mocker, huawei_c
     ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     with pytest.raises(ValueError, match="hardware"):
@@ -737,7 +764,8 @@ def test_upgrade_rejects_patch_release_mismatch_before_upload(mocker, huawei_cli
     ]
 
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     with pytest.raises(ValueError, match="release train"):
@@ -779,7 +807,7 @@ def test_upgrade_ensure_flash_space_wired_end_to_end(mocker, huawei_client, fake
         "network_automation.platforms.huawei_vrp.upgrade.ensure_flash_space",
         side_effect=real_ensure_flash_space,
     )
-    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_files")
+    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry", return_value={})
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
         return_value=_FAKE_MD5_RESULT,
@@ -817,7 +845,8 @@ def test_upgrade_skips_upload_when_already_on_flash(mocker, huawei_client, fake_
         return_value=(True, md5_result),
     )
     mock_upload = mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.apply_patch"
@@ -852,7 +881,8 @@ def test_upgrade_skips_apply_patch_when_already_active(mocker, huawei_client, fa
         return_value=True,
     )
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
@@ -884,7 +914,7 @@ def test_upgrade_skips_configure_next_startup_when_already_set(mocker, huawei_cl
         _display_version("200"), _ESN, _display_startup(TARGET_FILENAME, TARGET_FILENAME),
     ]
 
-    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_files")
+    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry", return_value={})
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
         return_value=_FAKE_MD5_RESULT,
@@ -919,7 +949,7 @@ def test_upgrade_skips_reboot_when_already_running_target(mocker, huawei_client,
         _display_version("200"), _ESN, _display_startup(TARGET_FILENAME, TARGET_FILENAME),
     ]
 
-    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_files")
+    mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry", return_value={})
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
         return_value=_FAKE_MD5_RESULT,
@@ -970,7 +1000,8 @@ def test_upgrade_patch_only_md5_match(mocker, huawei_client, fake_conn, tmp_path
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     result = huawei_client.upgrade(return_result=True)
@@ -1006,7 +1037,8 @@ def test_upgrade_patch_only_md5_mismatch_raises(mocker, huawei_client, fake_conn
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mock_apply = mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.apply_patch"
@@ -1043,7 +1075,8 @@ def test_upgrade_firmware_only_md5_match(mocker, huawei_client, fake_conn, tmp_p
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     mocker.patch.object(huawei_client, "reboot")
@@ -1083,7 +1116,8 @@ def test_upgrade_firmware_only_md5_mismatch_raises(mocker, huawei_client, fake_c
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mock_configure = mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup"
@@ -1138,7 +1172,8 @@ def test_upgrade_firmware_and_patch_md5_match(mocker, huawei_client, fake_conn, 
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
 
     mocker.patch.object(huawei_client, "reboot")
@@ -1188,7 +1223,8 @@ def test_upgrade_firmware_and_patch_md5_mismatch_on_firmware_raises(mocker, huaw
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mock_configure = mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup"
@@ -1198,6 +1234,212 @@ def test_upgrade_firmware_and_patch_md5_mismatch_on_firmware_raises(mocker, huaw
         huawei_client.upgrade()
 
     mock_configure.assert_not_called()
+
+
+# ---------- upgrade workflow: transfer verification + retry (Faza 9) ----------
+
+def test_upgrade_records_transfer_verification_metadata(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+    ]
+
+    transfer_result = {
+        TARGET_FILENAME: {
+            "exists": True, "expected_size": 10, "actual_size": 10, "match": True,
+        }
+    }
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value=transfer_result,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.metadata["transfer_verification"] == transfer_result
+
+
+def test_upgrade_upload_retry_exhausted_aborts_before_configure(mocker, huawei_client, fake_conn):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        side_effect=RuntimeError("Upload failed after 3 attempt(s): timed out"),
+    )
+    mock_configure = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup"
+    )
+
+    with pytest.raises(RuntimeError, match="Upload failed"):
+        huawei_client.upgrade()
+
+    mock_configure.assert_not_called()
+
+
+# ---------- upgrade workflow: pre-upgrade health check + backup (Faza 10) ----------
+
+_CPU_OK = "CPU Usage            : 10% Max: 20%\n"
+_MEMORY_OK = "Memory Using Percentage Is: 10%\n"
+_ALARM_NONE = "No alarm information.\n"
+_INTERFACE_ALL_UP = (
+    "Interface                   PHY   Protocol\n"
+    "GigabitEthernet0/0/0        up    up\n"
+)
+_CPU_HIGH = "CPU Usage            : 95% Max: 99%\n"
+
+
+def test_upgrade_runs_real_health_check_and_records_baseline(mocker, huawei_client, fake_conn):
+    from network_automation.platforms.huawei_vrp.health_check import (
+        run_pre_upgrade_health_check as real_health_check,
+    )
+
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _CPU_OK, _MEMORY_OK, _ALARM_NONE, _INTERFACE_ALL_UP,
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.run_pre_upgrade_health_check",
+        side_effect=real_health_check,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.metadata["pre_upgrade_baseline_health"]["cpu_usage_percent"] == 10.0
+    assert "health_check_violations" not in result.metadata
+
+
+def test_upgrade_health_check_abort_mode_prevents_upload(mocker, huawei_client, fake_conn):
+    from network_automation.platforms.huawei_vrp.health_check import (
+        run_pre_upgrade_health_check as real_health_check,
+    )
+
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    # health_check_mode defaults to "abort"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _CPU_HIGH, _MEMORY_OK, _ALARM_NONE, _INTERFACE_ALL_UP,
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.run_pre_upgrade_health_check",
+        side_effect=real_health_check,
+    )
+    mock_upload = mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+
+    with pytest.raises(RuntimeError, match="health check failed"):
+        huawei_client.upgrade()
+
+    mock_upload.assert_not_called()
+
+
+def test_upgrade_health_check_warn_mode_proceeds(mocker, huawei_client, fake_conn):
+    from network_automation.platforms.huawei_vrp.health_check import (
+        run_pre_upgrade_health_check as real_health_check,
+    )
+
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.health_check_mode = "warn"
+
+    mocker.patch(
+        "network_automation.base_client.ConnectHandler",
+        return_value=fake_conn,
+    )
+
+    fake_conn.send_command.side_effect = [
+        _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
+        _CPU_HIGH, _MEMORY_OK, _ALARM_NONE, _INTERFACE_ALL_UP,
+        "", _display_startup("old.cc", TARGET_FILENAME),
+        _display_version("200"), _ESN,
+        _display_startup(TARGET_FILENAME, TARGET_FILENAME),
+    ]
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.run_pre_upgrade_health_check",
+        side_effect=real_health_check,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.verify_md5",
+        return_value=_FAKE_MD5_RESULT,
+    )
+    mocker.patch.object(huawei_client, "reboot")
+    mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
+
+    result = huawei_client.upgrade(return_result=True)
+
+    assert result.metadata["health_check_violations"]
+    assert result.warnings
+
+
+def test_upgrade_invalid_health_check_mode_raises(huawei_client):
+    huawei_client.firmware_version = "V300R024C00SPC200"
+    huawei_client.firmware_file = f"/tmp/{TARGET_FILENAME}"
+    huawei_client.health_check_mode = "bogus"
+
+    with pytest.raises(ValueError, match="health_check_mode"):
+        huawei_client.upgrade()
 
 
 def test_upgrade_firmware_and_patch_md5_mismatch_on_patch_raises(mocker, huawei_client, fake_conn, tmp_path):
@@ -1225,7 +1467,8 @@ def test_upgrade_firmware_and_patch_md5_mismatch_on_patch_raises(mocker, huawei_
     ]
 
     mocker.patch(
-        "network_automation.platforms.huawei_vrp.upgrade.upload_files"
+        "network_automation.platforms.huawei_vrp.upgrade.upload_with_retry",
+        return_value={},
     )
     mock_configure = mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup"

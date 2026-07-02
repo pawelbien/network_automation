@@ -4,7 +4,12 @@ import hashlib
 
 import pytest
 from pathlib import Path
-from network_automation.platforms.huawei_vrp.upload import compute_local_md5
+from unittest.mock import MagicMock
+from network_automation.platforms.huawei_vrp.upload import (
+    compute_local_md5,
+    verify_remote_file,
+    upload_with_retry,
+)
 from network_automation.results import OperationResult
 
 
@@ -12,11 +17,28 @@ from network_automation.results import OperationResult
 # Fake SFTP stack
 # -------------------------------------------------------
 
-class FakeSFTP:
+class FakeChannel:
     def __init__(self):
+        self.timeout = None
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+
+class FakeSFTP:
+    def __init__(self, fail_first_n=0):
         self.uploads = []
+        self.channel = FakeChannel()
+        self._fail_first_n = fail_first_n
+        self._put_calls = 0
+
+    def get_channel(self):
+        return self.channel
 
     def put(self, local, remote):
+        self._put_calls += 1
+        if self._put_calls <= self._fail_first_n:
+            raise OSError("simulated transfer failure")
         self.uploads.append((local, remote))
 
     def close(self):
@@ -191,3 +213,132 @@ def test_upload_remote_dir_trailing_slash_normalised(monkeypatch, huawei_client,
     )
 
     assert fake_sftp.uploads == [(str(local_file), "/flash/fw.cc")]
+
+
+# -------------------------------------------------------
+# verify_remote_file (Faza 9)
+# -------------------------------------------------------
+
+def test_verify_remote_file_success(mocker, huawei_client):
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload.get_flash_info",
+        return_value={
+            "files": [{"name": "fw.cc", "size": 1234, "is_dir": False}],
+            "free_bytes": 10_000_000,
+        },
+    )
+
+    result = verify_remote_file(huawei_client, filename="fw.cc", expected_size=1234)
+
+    assert result == {
+        "exists": True,
+        "expected_size": 1234,
+        "actual_size": 1234,
+        "match": True,
+    }
+
+
+def test_verify_remote_file_missing_raises(mocker, huawei_client):
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload.get_flash_info",
+        return_value={"files": [], "free_bytes": 10_000_000},
+    )
+
+    with pytest.raises(RuntimeError, match="not found on flash"):
+        verify_remote_file(huawei_client, filename="fw.cc", expected_size=1234)
+
+
+def test_verify_remote_file_size_mismatch_raises(mocker, huawei_client):
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload.get_flash_info",
+        return_value={
+            "files": [{"name": "fw.cc", "size": 999, "is_dir": False}],
+            "free_bytes": 10_000_000,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="expected size 1234"):
+        verify_remote_file(huawei_client, filename="fw.cc", expected_size=1234)
+
+
+# -------------------------------------------------------
+# upload_with_retry (Faza 9)
+# -------------------------------------------------------
+
+def _mock_flash_info_for(mocker, files):
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload.get_flash_info",
+        return_value={
+            "files": [
+                {"name": p.name, "size": p.stat().st_size, "is_dir": False}
+                for p in files
+            ],
+            "free_bytes": 10_000_000,
+        },
+    )
+
+
+def test_upload_with_retry_success_first_attempt(mocker, huawei_client, tmp_path):
+    local_file = tmp_path / "fw.cc"
+    local_file.write_bytes(b"firmware contents")
+
+    fake_sftp = FakeSFTP()
+    huawei_client.conn = FakeConn(fake_sftp)
+    _mock_flash_info_for(mocker, [local_file])
+
+    result = upload_with_retry(
+        huawei_client, files=[local_file], remote_dir="flash:/", timeout=30, retries=3,
+    )
+
+    assert fake_sftp.uploads == [(str(local_file), "flash:/fw.cc")]
+    assert result["fw.cc"]["match"] is True
+    assert fake_sftp.channel.timeout == 30
+
+
+def test_upload_with_retry_succeeds_after_one_failure(mocker, huawei_client, tmp_path):
+    local_file = tmp_path / "fw.cc"
+    local_file.write_bytes(b"firmware contents")
+
+    fake_sftp = FakeSFTP(fail_first_n=1)
+    huawei_client.conn = FakeConn(fake_sftp)
+    _mock_flash_info_for(mocker, [local_file])
+    mock_sleep = mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
+
+    result = upload_with_retry(
+        huawei_client, files=[local_file], remote_dir="flash:/", timeout=30, retries=3,
+    )
+
+    assert result["fw.cc"]["match"] is True
+    assert fake_sftp.uploads == [(str(local_file), "flash:/fw.cc")]
+    mock_sleep.assert_called_once()
+
+
+def test_upload_with_retry_exhausts_retries_raises(mocker, huawei_client, tmp_path):
+    local_file = tmp_path / "fw.cc"
+    local_file.write_bytes(b"firmware contents")
+
+    fake_sftp = FakeSFTP(fail_first_n=99)
+    huawei_client.conn = FakeConn(fake_sftp)
+    mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
+
+    with pytest.raises(RuntimeError, match="Upload failed after 3 attempt"):
+        upload_with_retry(
+            huawei_client, files=[local_file], remote_dir="flash:/", timeout=30, retries=3,
+        )
+
+    assert fake_sftp._put_calls == 3
+
+
+def test_upload_with_retry_missing_local_file_not_retried(mocker, huawei_client, tmp_path):
+    missing_file = tmp_path / "ghost.cc"
+
+    fake_sftp = FakeSFTP()
+    huawei_client.conn = FakeConn(fake_sftp)
+    mock_sleep = mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
+
+    with pytest.raises(FileNotFoundError):
+        upload_with_retry(
+            huawei_client, files=[missing_file], remote_dir="flash:/", timeout=30, retries=3,
+        )
+
+    mock_sleep.assert_not_called()

@@ -42,6 +42,12 @@ class HuaweiVRP(BaseClient):
         lock_dir: str | None = None,
         force_downgrade: bool = False,
         i_understand_downgrade_risk: bool = False,
+        upload_timeout: float = 120,
+        upload_retries: int = 3,
+        health_check_mode: str = "abort",
+        health_check_cpu_threshold: float = 80.0,
+        health_check_memory_threshold: float = 80.0,
+        health_check_max_down_interfaces: int = 0,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -89,6 +95,29 @@ class HuaweiVRP(BaseClient):
                               confirmation when force_downgrade=True
                               (default False); upgrade() raises ValueError
                               if force_downgrade is set without this.
+        upload_timeout      — seconds bounding each individual SFTP
+                              transfer attempt during upgrade()'s firmware/
+                              patch upload (default 120). Does not apply to
+                              the general-purpose client.upload().
+        upload_retries      — number of upload+verify (exists + size)
+                              attempts before upgrade() gives up and raises
+                              RuntimeError (default 3).
+        health_check_mode   — "abort" (default) or "warn". Controls what
+                              upgrade() does when the pre-upgrade health
+                              check (CPU/memory/alarms/interfaces) finds a
+                              violation: "abort" raises RuntimeError before
+                              any state change; "warn" logs and continues.
+                              The check itself always runs and always
+                              evaluates in both modes — "warn" is an
+                              explicit, non-default opt-in, never a silent
+                              skip. Invalid values raise ValueError.
+        health_check_cpu_threshold — percent; pre-upgrade CPU usage above
+                              this triggers abort/warn (default 80.0).
+        health_check_memory_threshold — percent; pre-upgrade memory usage
+                              above this triggers abort/warn (default 80.0).
+        health_check_max_down_interfaces — number of interfaces already
+                              down before upgrade that's tolerated without
+                              triggering abort/warn (default 0).
         """
         super().__init__(
             context=context,
@@ -122,6 +151,12 @@ class HuaweiVRP(BaseClient):
         )
         self.force_downgrade = force_downgrade
         self.i_understand_downgrade_risk = i_understand_downgrade_risk
+        self.upload_timeout = upload_timeout
+        self.upload_retries = upload_retries
+        self.health_check_mode = health_check_mode
+        self.health_check_cpu_threshold = health_check_cpu_threshold
+        self.health_check_memory_threshold = health_check_memory_threshold
+        self.health_check_max_down_interfaces = health_check_max_down_interfaces
 
     def get_info(self, *, return_result: bool = False):
         """Read device info (version, ESN, startup config) for all stack units."""

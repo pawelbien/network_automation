@@ -9,7 +9,7 @@ MD5 verification, startup configuration, hot patch apply, reboot, and
 post-reboot verification.
 
 Deliberately out of scope for this pass (tracked as follow-up work):
-pre/post health checks, automatic rollback, and multi-unit/stack upgrades.
+automatic rollback and multi-unit/stack upgrades.
 """
 
 from pathlib import Path
@@ -17,6 +17,7 @@ from pathlib import Path
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 from network_automation.platforms.huawei_vrp.flash import ensure_flash_space
+from network_automation.platforms.huawei_vrp.health_check import run_pre_upgrade_health_check
 from network_automation.platforms.huawei_vrp.idempotency import (
     already_running_target,
     file_already_on_flash,
@@ -24,7 +25,7 @@ from network_automation.platforms.huawei_vrp.idempotency import (
 )
 from network_automation.platforms.huawei_vrp.lock import device_lock
 from network_automation.platforms.huawei_vrp.info import get_info, get_patch_info, get_file_md5, _parse_startup
-from network_automation.platforms.huawei_vrp.upload import upload_files, compute_local_md5
+from network_automation.platforms.huawei_vrp.upload import upload_with_retry, compute_local_md5
 from network_automation.platforms.huawei_vrp.validation import validate_upgrade_inputs, warn_if_downgrade
 from network_automation.platforms.huawei_vrp.version import (
     determine_operation_type,
@@ -164,7 +165,7 @@ def _upload_pending(client, result, paths: list[Path]) -> dict:
     """
     Upload only the files in `paths` that aren't already on flash with a
     matching MD5 (idempotent resume after an interruption) — one batched
-    upload_files() call for whatever's still pending, matching prior
+    upload_with_retry() call for whatever's still pending, matching prior
     behavior when nothing is skipped. Records each skip in
     result.metadata["skipped_steps"]. Returns {filename: md5_result}.
     """
@@ -182,7 +183,14 @@ def _upload_pending(client, result, paths: list[Path]) -> dict:
             pending.append(path)
 
     if pending:
-        upload_files(client, files=pending, remote_dir="flash:/")
+        transfer_verification = upload_with_retry(
+            client,
+            files=pending,
+            remote_dir="flash:/",
+            timeout=client.upload_timeout,
+            retries=client.upload_retries,
+        )
+        result.metadata.setdefault("transfer_verification", {}).update(transfer_verification)
         for path in pending:
             md5_results[path.name] = verify_md5(client, path)
 
@@ -244,6 +252,11 @@ def upgrade(client, *, return_result: bool = False):
                 "force_downgrade=True requires i_understand_downgrade_risk=True "
                 "as an explicit second confirmation."
             )
+        if client.health_check_mode not in ("abort", "warn"):
+            raise ValueError(
+                "health_check_mode must be 'abort' or 'warn', got "
+                f"{client.health_check_mode!r}"
+            )
 
         result = OperationResult(
             success=True,
@@ -301,6 +314,13 @@ def upgrade(client, *, return_result: bool = False):
                 client, current_version, client.firmware_version, current_patch, client.patch_version
             ):
                 result.metadata["downgrade_forced"] = True
+
+            run_pre_upgrade_health_check(client, result, mode=client.health_check_mode)
+
+            # Explicit pre-upgrade backup, in addition to the existing
+            # post-upgrade save — before any state-changing step below.
+            save_configuration(client)
+            result.metadata["pre_upgrade_backup_performed"] = True
 
             validate_upgrade_inputs(
                 client, unit_model=units[0]["model"], operation_type=operation_type

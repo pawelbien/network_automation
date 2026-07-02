@@ -1,8 +1,16 @@
 # network_automation/platforms/huawei_vrp/upload.py
 
 import hashlib
+import time
 from pathlib import Path
 from network_automation.results import OperationResult
+from network_automation.platforms.huawei_vrp.info import get_flash_info
+
+# Fixed pause between upload_with_retry() attempts. Not user-configurable —
+# only the attempt count (upload_retries) and per-attempt transfer timeout
+# (upload_timeout) are exposed on HuaweiVRP, per
+# engineering_handbook/tmp/huawei_vrp_update.txt's "File transfer phase".
+_RETRY_DELAY_SECONDS = 1
 
 
 # -------------------------------------------------------
@@ -60,6 +68,121 @@ def upload_files(
 
     finally:
         sftp.close()
+
+
+def verify_remote_file(client, *, filename: str, expected_size: int) -> dict:
+    """
+    Verify that `filename` exists on flash and its reported size matches
+    expected_size (dir listing) — the "after upload: verify remote file
+    exists, verify remote file size" step from
+    engineering_handbook/tmp/huawei_vrp_update.txt, run BEFORE MD5. MD5
+    verification is a separate, mandatory step (upgrade.verify_md5()) that
+    runs after this one — this check does not compute or compare hashes.
+
+    - no connect/disconnect
+    - raises RuntimeError if the file is missing or its size mismatches
+    """
+    flash_info = get_flash_info(client)
+    matches = [
+        f for f in flash_info["files"]
+        if not f["is_dir"] and f["name"] == filename
+    ]
+
+    if not matches:
+        raise RuntimeError(
+            f"Transfer verification failed: {filename!r} not found on "
+            "flash after upload."
+        )
+
+    actual_size = matches[0]["size"]
+    if actual_size != expected_size:
+        raise RuntimeError(
+            f"Transfer verification failed for {filename!r}: expected "
+            f"size {expected_size} bytes, found {actual_size} bytes on "
+            "flash."
+        )
+
+    return {
+        "exists": True,
+        "expected_size": expected_size,
+        "actual_size": actual_size,
+        "match": True,
+    }
+
+
+def upload_with_retry(
+    client,
+    *,
+    files: list[Path],
+    remote_dir: str,
+    timeout: float,
+    retries: int,
+) -> dict:
+    """
+    Upload `files` and verify each landed intact (exists + expected size),
+    retrying the whole upload+verify unit up to `retries` times before
+    giving up — see engineering_handbook/tmp/huawei_vrp_update.txt, "File
+    transfer phase": "Transfer must respect a configurable timeout and a
+    configurable number of retry attempts before failing the operation."
+
+    Deliberately does not delegate to upload_files() — that helper stays a
+    single, unbounded-timeout SFTP put used elsewhere (client.upload()),
+    while this one needs to bound each attempt's transfer with `timeout`
+    (paramiko sftp channel timeout) and loop on failure. Retry uses a plain
+    for-loop + time.sleep() between attempts, matching BaseClient.connect()'s
+    established retry style — no tenacity/decorator.
+
+    A missing local file (FileNotFoundError) is not retried — no number of
+    attempts will make a nonexistent local file appear.
+
+    - no connect/disconnect
+    - raises RuntimeError after exhausting all retries, chained to the last
+      underlying exception
+    - returns {filename: {"exists", "expected_size", "actual_size", "match"}}
+    """
+    last_exc = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            sftp = client.conn.remote_conn_pre.open_sftp()
+            try:
+                sftp.get_channel().settimeout(timeout)
+
+                for path in files:
+                    if not path.exists():
+                        raise FileNotFoundError(path)
+
+                    remote_path = f"{remote_dir.rstrip('/')}/{path.name}"
+                    client.logger.info(
+                        "Uploading %s → %s (attempt %d/%d)",
+                        path, remote_path, attempt, retries,
+                    )
+                    sftp.put(str(path), remote_path)
+            finally:
+                sftp.close()
+
+            results = {}
+            for path in files:
+                expected_size = path.stat().st_size
+                results[path.name] = verify_remote_file(
+                    client, filename=path.name, expected_size=expected_size,
+                )
+            return results
+
+        except FileNotFoundError:
+            raise
+
+        except Exception as exc:
+            last_exc = exc
+            client.logger.warning(
+                "Upload attempt %d/%d failed: %s", attempt, retries, exc,
+            )
+            if attempt < retries:
+                time.sleep(_RETRY_DELAY_SECONDS)
+
+    raise RuntimeError(
+        f"Upload failed after {retries} attempt(s): {last_exc}"
+    ) from last_exc
 
 
 # -------------------------------------------------------
