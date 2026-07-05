@@ -365,6 +365,16 @@ This mirrors `mikrotik_routeros/client.py`'s `reboot()`, which never
 pattern-matches at all for its post-confirmation state — fire the `"y"`
 and move on to `disconnect()`/`wait_for_reconnect()`.
 
+Confirmed against a manual console session on the reference device — no
+second `[y/n]` prompt, nothing else printed after confirming:
+
+```
+<Huawei>reboot
+Info: The system is comparing the configuration, please wait.
+System will reboot! Continue? [y/n]:y
+Info: system is rebooting, please wait...
+```
+
 ## Ruled out during investigation
 
 These all looked plausible at some point and were each disproved with a
