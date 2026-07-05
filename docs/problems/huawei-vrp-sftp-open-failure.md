@@ -11,9 +11,15 @@ and then #7. A third live run confirmed #6 and #7 (upload and
 `configure_next_startup` were correctly skipped as already-done) and
 surfaced #8: `reboot()` silently failed to confirm the reboot prompt, so
 the device never actually rebooted despite `upgrade()` reporting success.
-#6, #7, and #8 are all now fixed but not yet re-confirmed live
-end-to-end — a fourth live run is pending, and should finally reach a
-real reboot and post-reboot validation if nothing else surfaces.
+#6, #7, and #8 were fixed, and a fourth live run (device freshly
+downgraded back to `V300R023C00SPC100`, target file already on flash from
+a prior run) surfaced #9: `save_configuration()`'s idle-based "y"
+confirmation returned before VRP's own asynchronous "please wait" notice
+had fully arrived, and the leftover text was then misread as the current
+prompt by the very next command, hanging it for its full read_timeout.
+#9 is now fixed but not yet re-confirmed live end-to-end — a fifth live
+run is pending, and should finally reach a real reboot and post-reboot
+validation if nothing else surfaces.
 
 ## Symptom
 
@@ -374,6 +380,70 @@ Info: The system is comparing the configuration, please wait.
 System will reboot! Continue? [y/n]:y
 Info: system is rebooting, please wait...
 ```
+
+## Root cause #9: save_configuration()'s "y" confirmation returns before VRP's async "please wait" notice arrives, poisoning the next command's prompt detection
+
+Found on the fourth live run (device manually downgraded back to
+`V300R023C00SPC100`, target `.cc` still on flash from a prior run so
+idempotency was expected to skip the upload). Symptom, reconstructed from
+the debug log:
+
+1. `save_configuration()` sent `save`, got the `Are you sure to
+   continue?[Y/N]:` prompt within ~2s (fine), then sent `y` via
+   `send_command_timing("y")` (idle-time detection, default 2.0s quiet
+   window).
+2. The channel went quiet for 2s right after the `y` echo, so
+   `send_command_timing()` returned an empty response and
+   `pre_upgrade_save_configuration` logged as finished after 4.4s total —
+   *before* VRP had actually written anything else.
+3. ~0.9s after that idle cutoff, VRP asynchronously printed `It will take
+   several minutes to save configuration file, please wait...` on the
+   same channel — arriving too late for the already-returned
+   `send_command_timing()` call to see it, so it was never consumed by
+   `save_configuration()` at all.
+4. The very next command, `get_file_md5()`'s `send_command("display
+   system file-md5 flash:/...")`, uses Netmiko's default
+   `auto_find_prompt=True`, which calls `find_prompt()` *before* sending
+   the command to determine the search pattern. `find_prompt()` read the
+   still-pending `It will take several minutes...` line off the channel
+   and mistook it for the current prompt: `[DEBUG] [find_prompt()]:
+   prompt is It will take several minutes to save configuration file,
+   please wait...`
+5. `send_command()` then searched for that entire sentence, verbatim, as
+   its completion pattern. It never reappears (the actual subsequent
+   output is the MD5 progress spinner, the MD5 result, and the real
+   `<Huawei>` prompt) — Netmiko's main read loop doesn't log a "Pattern
+   found" line the way `find_prompt()`/`read_until_pattern()` do, so the
+   MD5 command's own successful completion produced no confirmation log
+   at all, and the loop just kept calling `read_channel()` roughly every
+   30ms, logging an empty `[DEBUG] read_channel:` line each time, for the
+   remainder of its `read_timeout=300` window — the "zalewanie" (flood)
+   symptom reported live. Given enough time this would have ended in a
+   `ReadTimeout`, not a hang forever, but 300s of pure debug-log noise for
+   a command that had actually already finished 275+ seconds earlier is a
+   real usability bug, and the same class of thing could poison any
+   command that happens to run right after `save_configuration()`.
+
+This is structurally the same shape of bug as root cause #8: VRP inserts
+an asynchronous, bounded-but-variable "please wait" style notice, and an
+idle-time-based (or last-line-based, for `find_prompt()`) completion
+heuristic gets fooled into thinking it has the final answer before the
+device is actually done talking.
+
+**Fix**: `save_configuration()`'s "y" confirmation now uses
+`client.conn.send_command("y", expect_string=r"[\]>]", read_timeout=300,
+strip_prompt=False, strip_command=False)` instead of
+`send_command_timing("y")`. This waits for the real prompt bracket to
+reappear (bounded by 300s, matching VRP's own "several minutes" warning)
+so the "please wait" notice is fully consumed as part of `save`'s own
+response instead of leaking into whatever command runs next — and, since
+Netmiko only invokes the risky `find_prompt()` probe when `expect_string`
+is `None`, passing it explicitly here means that probe is never sent at
+all for this step, mirroring the same reasoning already applied to the
+initial `reboot` send in root cause #8's fix. The initial `save` send
+itself was not changed — its `[Y/N]:` prompt arrived well within the
+default idle window in every observed run, with no evidence of the same
+race.
 
 ## Ruled out during investigation
 

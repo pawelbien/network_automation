@@ -282,12 +282,18 @@ def test_save_configuration_does_not_raise_on_normal_yn_prompt(huawei_client, fa
     huawei_client.conn = fake_conn
     fake_conn.send_command_timing.side_effect = [
         "Warning: dangerous, continue? [Y/N]:",
-        "Save the configuration successfully.",
+    ]
+    fake_conn.send_command.side_effect = [
+        "Save the configuration successfully.<Huawei>",
     ]
 
     save_configuration(huawei_client)  # must not raise
 
-    assert fake_conn.send_command_timing.call_count == 2
+    assert fake_conn.send_command_timing.call_count == 1
+    assert fake_conn.send_command.call_count == 1
+    _, kwargs = fake_conn.send_command.call_args
+    assert kwargs["expect_string"] == r"[\]>]"
+    assert kwargs["read_timeout"] == 300
 
 
 # ---------- verify_md5 ----------

@@ -181,6 +181,25 @@ def save_configuration(client):
     """
     Save the running configuration, confirming any interactive [Y/N] prompt.
 
+    VRP's "y" confirmation is followed by an asynchronous "It will take
+    several minutes to save configuration file, please wait..." notice
+    that can land *after* send_command_timing()'s idle-time heuristic has
+    already decided the command is done (observed live: the notice arrived
+    ~0.9s after the 2.0s idle window closed, well before the save itself
+    was actually finished). The leftover text then sits unread until the
+    *next* command's send_command() call, whose default auto_find_prompt()
+    probe reads it and mistakes it for the current prompt — producing a
+    search pattern that never matches again and hanging that next command
+    for its full read_timeout (root cause #9 in
+    docs/problems/huawei-vrp-sftp-open-failure.md).
+
+    Confirming with an explicit expect_string instead waits for the real
+    prompt to reappear (bounded by read_timeout, matching VRP's own
+    "several minutes" warning) and — because auto_find_prompt() is only
+    invoked when expect_string is None — never sends that risky probe in
+    the first place, so nothing is left dangling for the next command to
+    misread.
+
     - no connect/disconnect
     """
     # send_command_timing output here is an interactive [Y/N] confirmation
@@ -193,9 +212,15 @@ def save_configuration(client):
     for _ in range(3):
         if "y/n" not in output.lower():
             break
-        debug_log(client, "send_command_timing: %s", "y")
-        output = client.conn.send_command_timing("y")
-        debug_log(client, "send_command_timing response: %s", output)
+        debug_log(client, "send_command: %s", "y")
+        output = client.conn.send_command(
+            "y",
+            expect_string=r"[\]>]",
+            read_timeout=300,
+            strip_prompt=False,
+            strip_command=False,
+        )
+        debug_log(client, "send_command response: %s", output)
 
 
 def _upload_pending(client, result, paths: list[Path]) -> dict:
