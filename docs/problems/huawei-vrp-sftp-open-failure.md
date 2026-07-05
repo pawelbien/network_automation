@@ -7,9 +7,13 @@ second live run (~162MB transfer, `V300R023C00SPC100` → `V300R024C00SPC100`):
 the transfer completed, size-verified, and `client.conn` survived the
 ~16-minute transfer without hitting the console idle-timeout. That same
 run surfaced #5 (fixed, then re-triggered a fresh transfer per #6 below)
-and then #7, both now also fixed but not yet re-confirmed live
-end-to-end — a third live run is pending. #6 is a real inefficiency, not
-yet fixed (see its section for why it's lower priority than the others).
+and then #7. A third live run confirmed #6 and #7 (upload and
+`configure_next_startup` were correctly skipped as already-done) and
+surfaced #8: `reboot()` silently failed to confirm the reboot prompt, so
+the device never actually rebooted despite `upgrade()` reporting success.
+#6, #7, and #8 are all now fixed but not yet re-confirmed live
+end-to-end — a fourth live run is pending, and should finally reach a
+real reboot and post-reboot validation if nothing else surfaces.
 
 ## Symptom
 
@@ -271,10 +275,71 @@ that same command.
 (same `startup system-software` / `startup patch` verification pattern)
 and `apply_patch()` (`patch load ... all run`, same shape of risk even
 though patches are usually much smaller) in `upgrade.py` all now pass
-`read_timeout=300` to their `send_command()` calls. `client.reboot()`
-(`send_command_timing`, not pattern-matched) and `wait_for_reconnect()`
-(explicit `read_timeout=10` inside its own polling retry loop) were
-checked and are not at risk of this failure mode.
+`read_timeout=300` to their `send_command()` calls. `wait_for_reconnect()`
+(explicit `read_timeout=10` inside its own polling retry loop) was checked
+and is not at risk of this failure mode. `client.reboot()` was *also*
+checked and assumed safe at the time (`send_command_timing`, not
+pattern-matched, so the ~10s-default-too-short failure mode doesn't
+apply to it) — that assumption turned out to be wrong in a different way;
+see root cause #8.
+
+## Root cause #8: reboot()'s send_command_timing() can return before the confirmation prompt even appears — silently skipping it
+
+Found on the third live run (the one that confirmed fixes #6 and #7:
+upload and `configure_next_startup` were both correctly skipped as
+already-done). `upgrade()` reported `'rebooted': True,
+'reboot_duration_seconds': 21.09` and then failed version verification
+with `new_firmware` still `V300R023C00SPC100` — the device was still
+running the old firmware. The user confirmed independently: the device
+had not actually rebooted at all.
+
+Sequence, reconstructed from the debug log:
+
+1. `client.reboot()` sent `reboot` via `send_command_timing()`, whose
+   completion detection is idle-time-based (returns once the channel has
+   been quiet for `last_read`, default 2.0s) — not pattern-based.
+2. VRP's response to `reboot` started with `Warning: The current next
+   startup patch does not match the version of the current next startup
+   system software!` and `Info: The system is comparing the
+   configuration, please wait.` (this device still had the *old* patch,
+   `AR650A_V300R023SPH1b0.pat`, configured as `next_startup_patch` — this
+   was a `FIRMWARE_ONLY` operation, so nothing updated the patch slot),
+   then paused for over 2 seconds before printing the actual `System will
+   reboot! Continue? [y/n]:` prompt.
+3. That pause was long enough for `send_command_timing()`'s idle-based
+   heuristic to conclude the command was done, returning *before* the
+   `[y/n]:` prompt was even printed. `reboot()`'s confirmation loop
+   (`if "y/n" not in output.lower(): break`) checked the captured output —
+   which was only the warning/info text — found no `"y/n"`, and broke
+   immediately without ever sending `"y"`. Confirmed via the debug log:
+   exactly one `send_command_timing response` line appears for the whole
+   reboot sequence, and it doesn't contain the confirmation prompt.
+4. `reboot()` fell through to `self.conn.disconnect()` with the device's
+   `[y/n]:` prompt still dangling, unanswered, on that about-to-close
+   session. VRP discards a pending confirmation when its session ends,
+   so the reboot silently never happened.
+5. `wait_for_reconnect()` then opened a *brand new* SSH session to the
+   same, never-rebooted device and found it responsive within seconds —
+   reported as a fast, successful 21-second reboot-and-reconnect, when in
+   fact nothing had rebooted at all.
+
+Side effect also visible in the log: `self.conn.disconnect()` itself
+misbehaved afterward — Netmiko's `cleanup()` calls `check_config_mode()`,
+which was fooled by the dangling `...[y/n]:` prompt text into thinking
+the device was in config mode, so it then sent `return` (VRP's
+exit-config-mode command) — producing `Error: Please choose 'YES' or
+'NO' first before pressing 'Enter'.` in the log. Cosmetic once the real
+fix is in (there's no dangling prompt to confuse `check_config_mode()`
+if `reboot()` actually consumes it), not addressed separately.
+
+**Fix**: `reboot()` now uses pattern-based `send_command(expect_string=...)`
+instead of idle-based `send_command_timing()`, waiting for the actual
+`[y/n]` prompt text (or the normal CLI prompt, if none appears) rather
+than for the channel to go quiet — so a mid-response pause like this
+device's "please wait" can no longer be mistaken for completion.
+`read_timeout=300` for headroom. Sending the confirming `"y"` is wrapped
+in a `try/except`, since the device dropping the connection right after
+is the expected outcome once it's actually rebooting, not an error.
 
 ## Ruled out during investigation
 
