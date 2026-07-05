@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +15,15 @@ from network_automation.platforms.huawei_vrp.info import get_flash_info
 # only the attempt count (upload_retries) and per-attempt transfer timeout
 # (upload_timeout) are exposed on HuaweiVRP.
 _RETRY_DELAY_SECONDS = 1
+
+# How often to nudge client.conn's interactive CLI session while a long
+# SFTP transfer runs on the separate dedicated connection. Well under
+# this device's console idle-timeout (observed to fire during a real
+# ~15-minute firmware transfer — see docs/problems/
+# huawei-vrp-sftp-open-failure.md) — an SSH-transport-level keepalive
+# (client.device's keepalive=30) does NOT reset it, since it never
+# touches the CLI application layer.
+_CLI_KEEPALIVE_INTERVAL_SECONDS = 60
 
 
 # -------------------------------------------------------
@@ -89,6 +99,47 @@ def _dedicated_sftp(client, *, timeout: float | None = None):
         debug_log(client, "dedicated SFTP connection closed")
 
 
+def _keep_cli_alive(client, stop_event):
+    """
+    Send a harmless newline to client.conn every
+    _CLI_KEEPALIVE_INTERVAL_SECONDS until stop_event is set.
+
+    Best-effort: if client.conn is already dead, gives up silently — the
+    real error surfaces wherever client.conn is next actually used for
+    something that matters (e.g. verify_remote_file's 'dir').
+    """
+    while not stop_event.wait(_CLI_KEEPALIVE_INTERVAL_SECONDS):
+        try:
+            debug_log(client, "CLI keepalive: sending no-op to client.conn")
+            client.conn.send_command_timing("\n", read_timeout=5)
+        except Exception as exc:
+            debug_log(client, "CLI keepalive: client.conn unusable, stopping (%s)", exc)
+            return
+
+
+@contextmanager
+def _keep_cli_alive_during(client):
+    """
+    Run _keep_cli_alive() in a background thread for the lifetime of this
+    context, so client.conn's interactive CLI session doesn't hit this
+    device's console idle-timeout while a long SFTP transfer runs on the
+    separate dedicated connection (see _dedicated_sftp()). Always fully
+    stopped and joined before the context exits, so nothing is still
+    touching client.conn concurrently once callers resume using it (e.g.
+    verify_remote_file() right after upload_with_retry()'s transfer).
+    """
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=_keep_cli_alive, args=(client, stop_event), daemon=True,
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        thread.join(timeout=_CLI_KEEPALIVE_INTERVAL_SECONDS)
+
+
 def compute_local_md5(path: Path) -> str:
     """
     Compute the MD5 hex digest of a local file.
@@ -116,14 +167,16 @@ def upload_files(
 
     Opens its own dedicated SSH connection for SFTP (see
     _dedicated_sftp()) rather than reusing client.conn's interactive CLI
-    session — that connection/channel is untouched by this function.
+    session — that connection/channel is untouched by this function,
+    apart from a background no-op keepalive while the transfer runs (see
+    _keep_cli_alive_during()).
 
     - no connect/disconnect (of client.conn — this opens and closes its
       own separate SFTP connection internally, every call)
     - raises exceptions on failure
     """
 
-    with _dedicated_sftp(client) as sftp:
+    with _keep_cli_alive_during(client), _dedicated_sftp(client) as sftp:
         for path in files:
             if not path.exists():
                 raise FileNotFoundError(path)
@@ -207,6 +260,13 @@ def upload_with_retry(
     A missing local file (FileNotFoundError) is not retried — no number of
     attempts will make a nonexistent local file appear.
 
+    client.conn (the interactive CLI session used by the post-transfer
+    verify_remote_file() call below) gets a background no-op keepalive
+    for the duration of the transfer — see _keep_cli_alive_during() —
+    since this device's console idle-timeout can otherwise kill it
+    during a long transfer, which would fail verification (and trigger a
+    wasted retry-from-scratch) even though the transfer itself succeeded.
+
     - no connect/disconnect
     - raises RuntimeError after exhausting all retries, chained to the last
       underlying exception
@@ -216,7 +276,7 @@ def upload_with_retry(
 
     for attempt in range(1, retries + 1):
         try:
-            with _dedicated_sftp(client, timeout=timeout) as sftp:
+            with _keep_cli_alive_during(client), _dedicated_sftp(client, timeout=timeout) as sftp:
                 for path in files:
                     if not path.exists():
                         raise FileNotFoundError(path)

@@ -1,9 +1,9 @@
 # Huawei VRP: SFTP upload fails with immediate, empty SSH_FX_FAILURE
 
-Status: both root causes below (missing warm-up request, and the
-shared-transport hang) are fixed in `upload.py`
-(`_connect_dedicated()` / `_dedicated_sftp()`), pending a real
-end-to-end `upgrade()` run against a live device to confirm.
+Status: all four root causes below are fixed in `upload.py`. Fixes #1–3
+confirmed by a real ~161MB firmware transfer against a live reference
+device — that same run is what surfaced #4, now also fixed but not yet
+re-confirmed live end-to-end.
 
 ## Symptom
 
@@ -129,6 +129,47 @@ for this connection, so no interactive shell channel is ever created on
 it — only the SFTP channel `_dedicated_sftp()` explicitly opens. This
 matches how the diagnostic scripts in `diagnostics/huawei_vrp/` always
 connected, which is also why they never hit this failure mode.
+
+## Root cause #4: client.conn's CLI session dies from inactivity during a long transfer
+
+Found on the first live run after fixing #1–3 (a real ~161MB firmware
+upload that took several minutes). Symptom, in order:
+
+1. The dedicated SFTP connection's `sftp.put()` genuinely took a long
+   time (VRP itself is slow to write a large file to flash) — during
+   which it logged nothing beyond the usual transport-level
+   `keepalive@lag.net` global requests, which come from `client.conn`'s
+   *own* connection (its `keepalive=30` device setting), not from the
+   dedicated SFTP connection (which sets no keepalive at all).
+2. The transfer itself appears to have completed successfully.
+3. Immediately after, `upload_with_retry()` calls `verify_remote_file()`
+   → `get_flash_info()` → `client.conn.send_command("dir")` — and this
+   failed, with VRP itself reporting on the CLI: `Info: Configuration
+   console time out, please retry to log on`. `client.conn`'s
+   interactive session had been idle (no CLI traffic at all) for the
+   entire duration of the transfer, and this device's **console**
+   idle-timeout — a separate mechanism from the VTY idle-timeout, and
+   *not* reset by the SSH-transport-level `keepalive@lag.net` requests,
+   since those never touch the CLI application layer — killed it.
+4. Because `upload_with_retry()` doesn't distinguish "the transfer
+   failed" from "verification failed because of an unrelated dead CLI
+   session," the whole attempt is treated as failed and retried.
+5. The retry's `open(..., "wb")` is `CREATE|TRUNC`, so it **truncates
+   the file that had just finished uploading successfully** and starts
+   over from zero — confirmed live via `dir *.cc` on the device, showing
+   the file shrink from its full expected size back down to a few MB
+   right as the retry began. A likely-complete transfer was silently
+   discarded.
+
+**Fix**: `_keep_cli_alive_during()` in `upload.py` runs a background
+thread that sends a harmless newline over `client.conn` every 60s
+(`_CLI_KEEPALIVE_INTERVAL_SECONDS`, well under the observed timeout)
+for the duration of the SFTP transfer in both `upload_files()` and
+`upload_with_retry()`, and is always fully stopped and joined before
+the `with` block exits — so nothing touches `client.conn` concurrently
+once the caller (e.g. `verify_remote_file()`) needs it again. Best
+effort: if `client.conn` is already dead, it gives up silently and lets
+the real error surface at the actual point of use, same as before.
 
 ## Ruled out during investigation
 
