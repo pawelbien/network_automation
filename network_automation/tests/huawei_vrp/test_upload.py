@@ -35,6 +35,9 @@ class FakeSFTP:
     def get_channel(self):
         return self.channel
 
+    def normalize(self, path):
+        return "/"
+
     def put(self, local, remote):
         self._put_calls += 1
         if self._put_calls <= self._fail_first_n:

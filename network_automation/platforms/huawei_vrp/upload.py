@@ -47,6 +47,12 @@ def upload_files(
     """
 
     sftp = client.conn.remote_conn_pre.open_sftp()
+    # This device's SFTP server rejects an OPEN-for-write with an empty
+    # SSH_FX_FAILURE if it's the first request on a freshly opened
+    # channel; one prior read-only request makes every following write
+    # succeed. OpenSSH's sftp client always sends a REALPATH on session
+    # start for this reason — paramiko doesn't, so we do it explicitly.
+    sftp.normalize(".")
 
     try:
         for path in files:
@@ -144,6 +150,10 @@ def upload_with_retry(
             sftp = client.conn.remote_conn_pre.open_sftp()
             try:
                 sftp.get_channel().settimeout(timeout)
+                # See upload_files()'s matching comment: this device's SFTP
+                # server needs one prior read-only request before it will
+                # accept an OPEN-for-write on a freshly opened channel.
+                sftp.normalize(".")
 
                 for path in files:
                     if not path.exists():

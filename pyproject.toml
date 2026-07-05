@@ -15,6 +15,10 @@ authors = [
 
 dependencies = [
     "netmiko>=4.3.0",
+    # paramiko 5.0.0 removed ssh-rsa (SHA-1) pubkey signature support;
+    # some Huawei VRP devices only support ssh-rsa, so pin below that —
+    # see docs/problems/huawei-vrp-sftp-open-failure.md.
+    "paramiko<5.0.0",
 ]
 
 [project.optional-dependencies]
