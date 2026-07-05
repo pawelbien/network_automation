@@ -232,12 +232,23 @@ class HuaweiVRP(BaseClient):
         reboot never actually happened despite the run reporting success
         (see root cause #8 in docs/problems/huawei-vrp-sftp-open-failure.md).
 
-        Uses pattern-based send_command() instead, which waits for the
-        prompt text itself (bounded by read_timeout) rather than for the
-        channel to go idle, so it isn't fooled by a mid-response pause.
-        The device dropping the connection right after "y" (because it's
-        now actually rebooting) is treated as the expected success case,
-        not an error.
+        Uses pattern-based send_command() for the initial "reboot" send,
+        which waits for the prompt text itself (bounded by read_timeout)
+        rather than for the channel to go idle, so it isn't fooled by a
+        mid-response pause.
+
+        Confirming with "y" is deliberately different: observed live to be
+        followed by "Info: system is rebooting, please wait..." and then
+        *nothing else* for over a minute, without the connection actually
+        closing — pattern-matching that with send_command(read_timeout=300)
+        polls read_channel() every ~10-30ms for however much of those 300s
+        is left, flooding the log and blocking disconnect() for no benefit
+        (there's no further prompt coming once the device is actually
+        rebooting). send_command_timing()'s idle-time detection is the
+        right tool for this step instead — it returns as soon as the
+        device goes quiet, bounded by a short read_timeout as a ceiling,
+        not a target. The device dropping the connection entirely during
+        this is also treated as the expected success case, not an error.
         """
         self.logger.info("Rebooting device...")
 
@@ -257,21 +268,15 @@ class HuaweiVRP(BaseClient):
         for _ in range(3):
             if "y/n" not in output.lower():
                 break
-            debug_log(self, "send_command: %s", "y")
+            debug_log(self, "send_command_timing: %s", "y")
             try:
-                output = self.conn.send_command(
-                    "y",
-                    expect_string=r"(?i)y/n|[\]>]",
-                    read_timeout=300,
-                    strip_prompt=False,
-                    strip_command=False,
-                )
-                debug_log(self, "send_command response: %s", output)
+                output = self.conn.send_command_timing("y", read_timeout=15)
+                debug_log(self, "send_command_timing response: %s", output)
             except Exception as exc:
                 debug_log(
                     self,
-                    "send_command raised while confirming reboot (expected "
-                    "if the device is now actually rebooting): %s", exc,
+                    "send_command_timing raised while confirming reboot "
+                    "(expected if the device is now actually rebooting): %s", exc,
                 )
                 output = ""
                 break

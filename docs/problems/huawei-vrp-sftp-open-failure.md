@@ -333,13 +333,37 @@ fix is in (there's no dangling prompt to confuse `check_config_mode()`
 if `reboot()` actually consumes it), not addressed separately.
 
 **Fix**: `reboot()` now uses pattern-based `send_command(expect_string=...)`
-instead of idle-based `send_command_timing()`, waiting for the actual
-`[y/n]` prompt text (or the normal CLI prompt, if none appears) rather
-than for the channel to go quiet — so a mid-response pause like this
-device's "please wait" can no longer be mistaken for completion.
-`read_timeout=300` for headroom. Sending the confirming `"y"` is wrapped
-in a `try/except`, since the device dropping the connection right after
-is the expected outcome once it's actually rebooting, not an error.
+instead of idle-based `send_command_timing()` for the initial `reboot`
+send, waiting for the actual `[y/n]` prompt text (or the normal CLI
+prompt, if none appears) rather than for the channel to go quiet — so a
+mid-response pause like this device's "please wait" can no longer be
+mistaken for completion. `read_timeout=300` for headroom. Sending the
+confirming `"y"` is wrapped in a `try/except`, since the device dropping
+the connection right after is the expected outcome once it's actually
+rebooting, not an error.
+
+### Follow-up: the "y" confirmation itself must NOT use pattern-matching
+
+Fixed live on the very next run (the one that finally got a real reboot):
+after sending `"y"`, VRP printed `Info: system is rebooting, please
+wait...` and then **nothing else for over a minute**, without actually
+closing the connection. Using `send_command(expect_string=...,
+read_timeout=300)` for this step too (as first written) meant Netmiko
+kept polling `read_channel()` every ~10-30ms for however much of that
+300s was left, waiting for a prompt that was never coming —
+flooding the log (the user had to Ctrl-C `priv_hua_update.py`) and
+delaying `disconnect()` for no benefit, since there's nothing meaningful
+left to wait for once the device is actually rebooting.
+
+Unlike the initial `reboot` send (which genuinely needed to wait through
+a slow, *bounded* pre-prompt delay), the `"y"` confirmation has no such
+follow-up text to wait through — it's confirmed instantly, so idle-time
+detection is the right tool: **`send_command_timing("y", read_timeout=15)`**
+returns as soon as the channel goes quiet (typically within a couple of
+seconds), with the short `read_timeout` only as a ceiling, not a target.
+This mirrors `mikrotik_routeros/client.py`'s `reboot()`, which never
+pattern-matches at all for its post-confirmation state — fire the `"y"`
+and move on to `disconnect()`/`wait_for_reconnect()`.
 
 ## Ruled out during investigation
 

@@ -42,23 +42,17 @@ def test_reboot_does_not_raise_on_normal_yn_prompt(huawei_client):
     # Proves reboot() does NOT falsely trigger the CLI-error check on
     # ordinary [Y/N] prompt text (no check is applied at all here).
     fake_conn = MagicMock()
-    fake_conn.send_command.side_effect = [
-        "Warning: continue? [Y/N]:",
-        "System will reboot now.",
-    ]
+    fake_conn.send_command.return_value = "Warning: continue? [Y/N]:"
+    fake_conn.send_command_timing.return_value = "System will reboot now."
     huawei_client.conn = fake_conn
 
     huawei_client.reboot()  # must not raise
 
-    assert fake_conn.send_command.call_count == 2
-    fake_conn.send_command.assert_any_call(
+    fake_conn.send_command.assert_called_once_with(
         "reboot", expect_string=r"(?i)y/n|[\]>]", read_timeout=300,
         strip_prompt=False, strip_command=False,
     )
-    fake_conn.send_command.assert_any_call(
-        "y", expect_string=r"(?i)y/n|[\]>]", read_timeout=300,
-        strip_prompt=False, strip_command=False,
-    )
+    fake_conn.send_command_timing.assert_called_once_with("y", read_timeout=15)
 
 
 def test_reboot_confirms_yn_prompt_delayed_by_please_wait_message(huawei_client):
@@ -70,29 +64,44 @@ def test_reboot_confirms_yn_prompt_delayed_by_please_wait_message(huawei_client)
     # send_command() must instead wait for the actual prompt text, however
     # delayed, and still send "y".
     fake_conn = MagicMock()
-    fake_conn.send_command.side_effect = [
+    fake_conn.send_command.return_value = (
         "Info: The system is comparing the configuration, please wait.\n"
-        "System will reboot! Continue? [y/n]:",
-        "",  # connection drops here in real life — empty response is fine too
-    ]
+        "System will reboot! Continue? [y/n]:"
+    )
+    fake_conn.send_command_timing.return_value = "Info: system is rebooting, please wait..."
     huawei_client.conn = fake_conn
 
     huawei_client.reboot()  # must not raise
 
-    fake_conn.send_command.assert_any_call(
-        "y", expect_string=r"(?i)y/n|[\]>]", read_timeout=300,
-        strip_prompt=False, strip_command=False,
-    )
+    fake_conn.send_command_timing.assert_called_once_with("y", read_timeout=15)
+
+
+def test_reboot_confirmation_uses_idle_based_timing_not_pattern_matching(huawei_client):
+    # Root cause #8 follow-up: confirming "y" is followed by "Info: system
+    # is rebooting, please wait..." and then nothing else for a long time,
+    # without the connection actually closing — observed live to make
+    # pattern-based send_command(read_timeout=300) poll read_channel() for
+    # minutes, flooding the log. The confirmation step must use
+    # send_command_timing() (idle-time based, short read_timeout ceiling),
+    # never send_command()/expect_string, which is only appropriate for the
+    # initial "reboot" send (see the test above).
+    fake_conn = MagicMock()
+    fake_conn.send_command.return_value = "System will reboot! Continue? [y/n]:"
+    fake_conn.send_command_timing.return_value = "Info: system is rebooting, please wait..."
+    huawei_client.conn = fake_conn
+
+    huawei_client.reboot()  # must not raise
+
+    assert fake_conn.send_command.call_count == 1
+    fake_conn.send_command_timing.assert_called_once_with("y", read_timeout=15)
 
 
 def test_reboot_tolerates_connection_dying_after_confirmation(huawei_client):
     # The device actually rebooting and dropping the connection right after
     # "y" is the expected success case, not an error to propagate.
     fake_conn = MagicMock()
-    fake_conn.send_command.side_effect = [
-        "System will reboot! Continue? [y/n]:",
-        ConnectionError("connection closed"),
-    ]
+    fake_conn.send_command.return_value = "System will reboot! Continue? [y/n]:"
+    fake_conn.send_command_timing.side_effect = ConnectionError("connection closed")
     huawei_client.conn = fake_conn
 
     huawei_client.reboot()  # must not raise
