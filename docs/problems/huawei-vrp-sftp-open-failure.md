@@ -17,9 +17,14 @@ a prior run) surfaced #9: `save_configuration()`'s idle-based "y"
 confirmation returned before VRP's own asynchronous "please wait" notice
 had fully arrived, and the leftover text was then misread as the current
 prompt by the very next command, hanging it for its full read_timeout.
-#9 is now fixed but not yet re-confirmed live end-to-end — a fifth live
-run is pending, and should finally reach a real reboot and post-reboot
-validation if nothing else surfaces.
+#9 was fixed, and a fifth live run (same device/version pair) completed
+`upgrade()` end-to-end with no errors, warnings, or timeouts anywhere in
+the debug log: upload skipped (idempotent, MD5 match), MD5 verified,
+`save`/`reboot` handled cleanly, a real ~292s reboot with the delayed
+`[y/n]` prompt confirmed correctly, and post-reboot validation (version,
+routing, interfaces, alarms) all passed —
+`result.metadata['post_reboot_validation_passed'] == True`. All nine root
+causes are now considered closed.
 
 ## Symptom
 
