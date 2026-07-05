@@ -172,7 +172,7 @@ def test_cleanup_flash_never_touches_protected_files():
 
 # ---------- ensure_flash_space ----------
 
-def _client_with_flash(mocker, free_bytes, flash_files=_FLASH_FILES):
+def _client_with_flash(mocker, free_bytes, flash_files=_FLASH_FILES, already_on_flash=False):
     client = SimpleNamespace(
         conn=MagicMock(), logger=MagicMock(),
         firmware_file="/tmp/AR650A_V300R024C00SPC200.cc",
@@ -181,6 +181,10 @@ def _client_with_flash(mocker, free_bytes, flash_files=_FLASH_FILES):
     mocker.patch(
         "network_automation.platforms.huawei_vrp.flash.get_flash_info",
         return_value={"files": flash_files, "free_bytes": free_bytes},
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.flash.file_already_on_flash",
+        return_value=(already_on_flash, {"match": already_on_flash}),
     )
     return client
 
@@ -292,6 +296,37 @@ def test_ensure_flash_space_raises_when_still_insufficient_after_cleanup(mocker,
 
     with pytest.raises(RuntimeError, match="Insufficient flash space"):
         ensure_flash_space(client, result, OPERATION_FIRMWARE_ONLY, units)
+
+
+def test_ensure_flash_space_skips_target_already_on_flash(mocker, tmp_path):
+    # Root cause #6 (docs/problems/huawei-vrp-sftp-open-failure.md): a target
+    # file already on flash with a matching MD5 won't actually be
+    # re-uploaded (idempotency skips it in _upload_pending), so it must
+    # contribute zero bytes — no size, no overwrite_margin — to
+    # required_space, or a tight-but-sufficient device would be pushed into
+    # a needless (or, once the file is protected as next_startup_image,
+    # outright failing) cleanup.
+    # free_bytes deliberately less than the target file's own size (but more
+    # than the safety margin alone) — proves the fix, not just a generously
+    # free device: this would fail calculate_required_space's old behavior
+    # (which double-counted the existing file via overwrite_margin) but
+    # must succeed now that an already-matching target contributes 0 bytes.
+    firmware_file = tmp_path / "fw.cc"
+    firmware_file.write_bytes(b"x" * 1000)
+    client = _client_with_flash(mocker, free_bytes=60 * 1024 * 1024, already_on_flash=True)
+    client.firmware_file = str(firmware_file)
+    client.patch_file = None
+    result = SimpleNamespace(metadata={})
+
+    mock_cleanup = mocker.patch(
+        "network_automation.platforms.huawei_vrp.flash.cleanup_flash"
+    )
+
+    ensure_flash_space(client, result, OPERATION_FIRMWARE_ONLY, [{"model": "AR651"}])
+
+    mock_cleanup.assert_not_called()
+    assert result.metadata["flash_required_bytes"] == 50 * 1024 * 1024
+    assert "flash_cleanup_performed" not in result.metadata
 
 
 def test_ensure_flash_space_only_sizes_files_the_operation_needs(mocker, tmp_path):

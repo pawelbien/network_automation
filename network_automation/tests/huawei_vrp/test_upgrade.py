@@ -832,6 +832,10 @@ def test_upgrade_ensure_flash_space_wired_end_to_end(mocker, huawei_client, fake
         "network_automation.platforms.huawei_vrp.upgrade.ensure_flash_space",
         side_effect=real_ensure_flash_space,
     )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.flash.file_already_on_flash",
+        return_value=(False, {"match": False}),
+    )
     mocker.patch("network_automation.platforms.huawei_vrp.upgrade.upload_with_retry", return_value={})
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.verify_md5",

@@ -1,14 +1,15 @@
 # Huawei VRP: SFTP upload fails with immediate, empty SSH_FX_FAILURE
 
-Status: all four root causes below are fixed in `upload.py`. Fixes #1–3
-confirmed by a real ~161MB firmware transfer against a live reference
-device — that same run is what surfaced #4. Fix #4 (and #1–3 again) were
-then confirmed by a second live run (~162MB transfer, `V300R023C00SPC100`
-→ `V300R024C00SPC100`): the transfer completed, size-verified, and
-`client.conn` survived the ~16-minute transfer without hitting the
-console idle-timeout. That same run surfaced a fifth, independent bug in
-the post-upload MD5 verification step — see root cause #5, also now
-fixed but not yet re-confirmed live end-to-end.
+Status: root causes #1–3 are fixed in `upload.py` and confirmed by a real
+~161MB firmware transfer against a live reference device — that same run
+is what surfaced #4. Fix #4 (and #1–3 again) were then confirmed by a
+second live run (~162MB transfer, `V300R023C00SPC100` → `V300R024C00SPC100`):
+the transfer completed, size-verified, and `client.conn` survived the
+~16-minute transfer without hitting the console idle-timeout. That same
+run surfaced #5 (fixed, then re-triggered a fresh transfer per #6 below)
+and then #7, both now also fixed but not yet re-confirmed live
+end-to-end — a third live run is pending. #6 is a real inefficiency, not
+yet fixed (see its section for why it's lower priority than the others).
 
 ## Symptom
 
@@ -190,18 +191,16 @@ that confirmed #4). Symptom, in order:
    read_timeout (~10s).
 3. `send_command()` raised `ReadTimeoutError: Pattern not detected:
    '<Huawei>' in output` partway through the spinner, even though the
-   device was still working correctly and later produced a valid MD5.
-   This left the still-arriving spinner frames, the eventual MD5 result,
-   and the following CLI prompt unread and sitting in the channel buffer.
-4. `upgrade()`'s `finally: client.disconnect()` then ran while that stale,
-   unread output was still in the buffer. Netmiko's disconnect/cleanup
-   logic (which sends `quit` and expects a `<Huawei>` prompt back) drained
-   the stale bytes first, then got nothing back for its own `quit` inside
-   its own read window, raising a second `ReadTimeoutError` with the same
-   message — this second exception is the one that actually surfaces to
-   the caller (`upgrade.py`'s example script printed "Upgrade failed:
-   Pattern not detected: '<Huawei>' in output", not the original
-   MD5-command timeout).
+   device was still working correctly and later produced a valid MD5 —
+   this is the exception that actually reached the caller
+   (`upgrade.py`'s example script printed "Upgrade failed: Pattern not
+   detected: '<Huawei>' in output"). Confirmed by reading Netmiko's own
+   source (`CiscoBaseConnection.cleanup()`, which `HuaweiBase` uses) that
+   `client.disconnect()` cannot be a second, masking source of this same
+   exception: `cleanup()` only ever does one `write_channel("quit" +
+   RETURN)` with no read/pattern-match of its own, and `disconnect()`
+   wraps `cleanup()` in a bare `try/except: pass` — so this was the
+   original exception the whole time, not a disconnect-time one.
 
 Confirmed the transfer itself was not at fault: the raw device output
 captured before the timeout already contained a valid MD5
@@ -212,6 +211,70 @@ captured before the timeout already contained a valid MD5
 `send_command()`, matching the existing precedent in `flash.py`'s
 `ensure_flash_space()` for the other known-slow VRP command
 (re-pointing the backup startup image).
+
+## Root cause #6: ensure_flash_space() deletes the just-uploaded target file itself
+
+Found on the second live run (the one that confirmed fix #5), triggered
+because that run started with the prior run's already-uploaded,
+already-correct target file still on flash (that prior run never got
+past the MD5 step, before fix #5). Symptom:
+
+`calculate_required_space()` always assumes the target `.cc`/`.pat` is
+about to be freshly uploaded, and if a file already exists on flash under
+the exact target filename, it adds that file's size a second time as
+`overwrite_margin` (reasoning: a fresh upload needs to coexist with the
+old same-named file during transfer). This produced `required =
+391889408` bytes against `free = 282726400` bytes — insufficient — solely
+*because* the correct target file was already present, which triggered
+`cleanup_flash()`. `cleanup_flash()`'s candidate list is any non-protected
+`.cc`/`.pat` file (`protected_names` only covers the *current* unit's
+startup/next-startup image and patch — not whatever `client.firmware_file`
+/ `client.patch_file` are about to be uploaded), so it deleted
+`AR650A_V300R024C00SPC100.cc` — the fully-transferred, MD5-correct target
+file — before `_upload_pending()`'s idempotency check
+(`file_already_on_flash()`) ever got a chance to see it and skip the
+upload. Confirmed in `result.metadata`: `'flash_cleanup_performed': True,
+'deleted_files': ['AR650A_V300R024C00SPC100.cc']`, followed by a full
+second ~914s re-upload of the exact same bytes.
+
+Wasteful (an extra ~15-minute transfer every run until the file is
+finally consumed by `configure_next_startup`) but not data-lossy on its
+own — unlike root cause #4, there was no partially-written file at risk,
+since `cleanup_flash()` only deletes whole files, and the re-upload
+starts clean. Not yet fixed: doing so would mean either excluding
+`client.firmware_file`/`client.patch_file`'s target names from
+`cleanup_flash()`'s candidates, or having `ensure_flash_space()` check
+`file_already_on_flash()` first and skip straight past the space
+calculation for files that are already correct.
+
+## Root cause #7: configure_next_startup()'s default read_timeout is too short
+
+Found on the same second live run, immediately after root cause #5's fix
+let the MD5 step pass for the first time. Same failure class as #5, a
+different command: `startup system-software flash:/<file>` — which VRP
+itself flags as slow (`Info: Start processing. The check may take a long
+time. Please wait...` / `Info: Software package verification is in
+progress. Please wait...`, re-verifying the whole firmware package) — was
+sent via plain `send_command()` with no `read_timeout`, so it hit
+Netmiko's ~10s default and raised the same `ReadTimeoutError: Pattern not
+detected: '<Huawei>' in output`, crashing `upgrade()` before it ever
+reached `reboot()`.
+
+Confirmed the command itself had actually succeeded on the device despite
+the client-side timeout: a manual `display startup` on the device (run
+from a separate session while investigating) showed `Next startup system
+software: flash:/AR650A_V300R024C00SPC100.cc` already correctly set, even
+though the script had crashed out with an exception right after issuing
+that same command.
+
+**Fix**: `configure_next_startup()` and `configure_next_startup_patch()`
+(same `startup system-software` / `startup patch` verification pattern)
+and `apply_patch()` (`patch load ... all run`, same shape of risk even
+though patches are usually much smaller) in `upgrade.py` all now pass
+`read_timeout=300` to their `send_command()` calls. `client.reboot()`
+(`send_command_timing`, not pattern-matched) and `wait_for_reconnect()`
+(explicit `read_timeout=10` inside its own polling retry loop) were
+checked and are not at risk of this failure mode.
 
 ## Ruled out during investigation
 

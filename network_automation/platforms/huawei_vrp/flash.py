@@ -16,6 +16,7 @@ from pathlib import Path
 
 from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
+from network_automation.platforms.huawei_vrp.idempotency import file_already_on_flash
 from network_automation.platforms.huawei_vrp.info import get_flash_info
 from network_automation.platforms.huawei_vrp.version import (
     OPERATION_FIRMWARE_AND_PATCH,
@@ -163,19 +164,32 @@ def ensure_flash_space(
     Raises RuntimeError if space is still insufficient after cleanup (not
     in dry-run mode) — always before any upload.
 
+    A target file already on flash with a matching MD5 contributes zero
+    bytes to required_space (both its own size and any overwrite_margin)
+    — _upload_pending()'s idempotency check will skip uploading it, so
+    reserving space (or double-space) for a transfer that isn't going to
+    happen would either force a needless cleanup or, worse, delete files
+    protected by the *next* run's next_startup_image/next_startup_patch
+    once this run points them at what's already correct on flash (see
+    root cause #6 in docs/problems/huawei-vrp-sftp-open-failure.md).
+
     - no connect/disconnect
     """
     target_cc_size = target_cc_name = None
     if operation_type in (OPERATION_FIRMWARE_ONLY, OPERATION_FIRMWARE_AND_PATCH):
         firmware_path = Path(client.firmware_file)
-        target_cc_size = firmware_path.stat().st_size
-        target_cc_name = firmware_path.name
+        already_present, _ = file_already_on_flash(client, firmware_path)
+        if not already_present:
+            target_cc_size = firmware_path.stat().st_size
+            target_cc_name = firmware_path.name
 
     target_pat_size = target_pat_name = None
     if operation_type in (OPERATION_PATCH_ONLY, OPERATION_FIRMWARE_AND_PATCH):
         patch_path = Path(client.patch_file)
-        target_pat_size = patch_path.stat().st_size
-        target_pat_name = patch_path.name
+        already_present, _ = file_already_on_flash(client, patch_path)
+        if not already_present:
+            target_pat_size = patch_path.stat().st_size
+            target_pat_name = patch_path.name
 
     flash_info = get_flash_info(client)
     required = calculate_required_space(

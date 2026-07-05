@@ -48,12 +48,20 @@ def configure_next_startup(client, filename: str):
     """
     Point the device's next-boot startup image at `filename` and verify it stuck.
 
+    VRP itself warns this is slow ("Info: Start processing. The check may
+    take a long time. Please wait...") — it re-verifies the whole firmware
+    package. Observed to exceed Netmiko's ~10s default read_timeout for a
+    162MB image (same failure mode as get_file_md5, see root cause #5 in
+    docs/problems/huawei-vrp-sftp-open-failure.md): the command actually
+    succeeds on-device, but send_command() raises a false ReadTimeout
+    first — read_timeout=300 matches the other known-slow VRP commands.
+
     - no connect/disconnect
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
     command = f"startup system-software flash:/{filename}"
     debug_log(client, "send_command: %s", command)
-    ack = client.conn.send_command(command)
+    ack = client.conn.send_command(command, read_timeout=300)
     debug_log(client, "send_command response: %s", ack)
     _check_cli_output(command, ack, expect_content=False)
 
@@ -76,12 +84,15 @@ def configure_next_startup_patch(client, filename: str):
     """
     Point the device's next-boot startup patch at `filename` and verify it stuck.
 
+    Same slow on-device verification as configure_next_startup() — see the
+    read_timeout note there.
+
     - no connect/disconnect
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
     command = f"startup patch flash:/{filename}"
     debug_log(client, "send_command: %s", command)
-    ack = client.conn.send_command(command)
+    ack = client.conn.send_command(command, read_timeout=300)
     debug_log(client, "send_command response: %s", ack)
     _check_cli_output(command, ack, expect_content=False)
 
@@ -151,12 +162,16 @@ def apply_patch(client, filename: str, expected_patch_version: str):
     """
     Load and run a hot patch, then verify it's actually active.
 
+    Same slow-verification risk as configure_next_startup() — read_timeout=300
+    as a precaution, even though patches are typically much smaller than
+    firmware images.
+
     - no connect/disconnect
     - raises RuntimeError if the patch isn't running or the version mismatches
     """
     command = f"patch load flash:/{filename} all run"
     debug_log(client, "send_command: %s", command)
-    ack = client.conn.send_command(command)
+    ack = client.conn.send_command(command, read_timeout=300)
     debug_log(client, "send_command response: %s", ack)
     _check_cli_output(command, ack, expect_content=False)
     return _verify_patch_active(client, expected_patch_version)
