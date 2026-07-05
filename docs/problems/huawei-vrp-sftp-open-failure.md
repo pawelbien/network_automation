@@ -1,7 +1,9 @@
 # Huawei VRP: SFTP upload fails with immediate, empty SSH_FX_FAILURE
 
-Status: root cause confirmed against a live reference device (AR650,
-VRP V300R023C00SPC100). Fix not yet applied to the library.
+Status: both root causes below (missing warm-up request, and the
+shared-transport hang) are fixed in `upload.py`
+(`_connect_dedicated()` / `_dedicated_sftp()`), pending a real
+end-to-end `upgrade()` run against a live device to confirm.
 
 ## Symptom
 
@@ -22,8 +24,9 @@ regardless of:
   `0644` permission attributes, etc.)
 - using a dedicated fresh SSH connection instead of one shared with an
   interactive Netmiko shell session (sharing a transport with an
-  interactive shell produces a *different* failure mode — see "Shared
-  transport hang" below — so always use a dedicated connection for SFTP)
+  interactive shell produces a *different* failure mode — see root
+  cause #3 below — so always use a dedicated, plain-paramiko connection
+  for SFTP, never one obtained via Netmiko)
 
 The OpenSSH `sftp` command-line client, against the same host/user/key,
 uploads the same file without issue.
@@ -84,6 +87,49 @@ incompatible paramiko version.
 
 **Fix**: pin `paramiko<5.0.0` as a project dependency.
 
+## Root cause #3: SFTP sharing a transport with an interactive shell channel hangs
+
+Initially assumed not to affect production code and deprioritized —
+turned out to be very much live in `upgrade()`'s actual code path, and
+only surfaced once root cause #1 was fixed and a real `upgrade()` run
+got far enough to reach the upload step.
+
+Symptom: no immediate error. `sftp.put()` (even with a
+`callback=...` progress callback) makes zero progress for ~5 minutes,
+during which only transport-level `keepalive@lag.net` global requests
+are visible in the debug log — nothing SFTP-specific — then the
+connection dies with `Connection reset by peer` / `SSH session not
+active`.
+
+`upload_files()`/`upload_with_retry()` open SFTP via
+`client.conn.remote_conn_pre.open_sftp()` — `client.conn` **is** the
+live, active interactive Netmiko CLI shell session (the same one
+`send_command()` etc. use throughout `upgrade()`), so this was always
+opening the SFTP channel on a transport that already had an
+interactive shell channel on it. That combination is what hangs on
+this device.
+
+**First fix attempt that did *not* work**: opening a second, separate
+Netmiko session via `ConnectHandler(**client.device)` for SFTP,
+believing that a distinct connection object would avoid sharing state
+with `client.conn`. It doesn't help: `ConnectHandler()` always spins up
+its own interactive shell channel as part of connecting (that's what
+`session_preparation()` does — find the prompt, run
+`screen-length 0 temporary`, etc.), so the "dedicated" Netmiko
+connection reproduces the exact same condition (an interactive shell
+channel plus an SFTP channel on one transport) with a brand new shell
+session instead of the old one. Confirmed live: `[chan 0]` was the new
+session's own shell, `[chan 1]` the SFTP channel, and the same 5-minute
+hang followed.
+
+**Actual fix**: `_connect_dedicated()` in `upload.py` builds a plain
+`paramiko.SSHClient` directly (same host/port/username/password-or-key/
+disabled_algorithms as `client.device`) and never calls Netmiko at all
+for this connection, so no interactive shell channel is ever created on
+it — only the SFTP channel `_dedicated_sftp()` explicitly opens. This
+matches how the diagnostic scripts in `diagnostics/huawei_vrp/` always
+connected, which is also why they never hit this failure mode.
+
 ## Ruled out during investigation
 
 These all looked plausible at some point and were each disproved with a
@@ -118,18 +164,6 @@ re-investigated from scratch next time:
   InfoAlias=SFTPS_REQUEST` entry that, even with `info-center
   statistic-suppress` disabled, never correlated with a reproduced
   failure — a dead end, not connected to this bug.
-
-## Shared transport hang (separate, lower-priority issue)
-
-Running SFTP over a transport shared with an interactive Netmiko shell
-session (instead of a dedicated connection) produces a different
-failure mode: no immediate error, but a ~5 minute hang with zero
-progress (even with an `sftp.put(..., callback=...)` progress callback),
-ending in `Connection reset by peer`. Not investigated further since
-`upload.py` already uses a dedicated SFTP channel
-(`client.conn.remote_conn_pre.open_sftp()`) rather than reusing an
-interactive shell channel — but worth remembering if some future code
-path shares a transport between an interactive shell and SFTP.
 
 ## Diagnostic scripts
 

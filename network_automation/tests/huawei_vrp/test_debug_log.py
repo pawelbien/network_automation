@@ -144,9 +144,13 @@ def test_debug_log_enabled_upload_logs_result_metadata(caplog, monkeypatch, debu
     monkeypatch.setattr(debug_client, "disconnect", lambda: None)
 
     fake_sftp = MagicMock()
+    fake_sftp.normalize.return_value = "/"
     fake_conn = MagicMock()
-    fake_conn.remote_conn_pre.open_sftp.return_value = fake_sftp
-    debug_client.conn = fake_conn
+    fake_conn.open_sftp.return_value = fake_sftp
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: fake_conn,
+    )
 
     debug_client.upload(files=[str(local_file)], remote_dir="/flash/")
 
@@ -184,17 +188,17 @@ class _FakeSFTP:
         pass
 
 
-class _FakeRemoteConnPre:
+class _FakeConn:
+    """Stands in for the plain paramiko.SSHClient _connect_dedicated() returns."""
+
     def __init__(self, sftp):
         self._sftp = sftp
 
     def open_sftp(self):
         return self._sftp
 
-
-class _FakeConn:
-    def __init__(self, sftp):
-        self.remote_conn_pre = _FakeRemoteConnPre(sftp)
+    def close(self):
+        pass
 
 
 def _mock_flash_info_for(mocker, files):
@@ -217,7 +221,10 @@ def test_upload_with_retry_debug_log_on_attempt_when_enabled(caplog, mocker, deb
     local_file.write_bytes(b"firmware contents")
 
     fake_sftp = _FakeSFTP()
-    debug_client.conn = _FakeConn(fake_sftp)
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        return_value=_FakeConn(fake_sftp),
+    )
     _mock_flash_info_for(mocker, [local_file])
 
     upload_with_retry(debug_client, files=[local_file], remote_dir="flash:/", timeout=30, retries=3)
@@ -238,7 +245,10 @@ def test_upload_with_retry_warning_on_failure_unaffected_by_debug_flag(caplog, m
     local_file.write_bytes(b"firmware contents")
 
     fake_sftp = _FakeSFTP(fail_first_n=1)
-    huawei_client.conn = _FakeConn(fake_sftp)
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        return_value=_FakeConn(fake_sftp),
+    )
     _mock_flash_info_for(mocker, [local_file])
     mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
 

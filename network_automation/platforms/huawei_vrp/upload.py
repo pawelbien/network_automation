@@ -1,8 +1,11 @@
 # network_automation/platforms/huawei_vrp/upload.py
 
 import hashlib
+import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
+import paramiko
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
 from network_automation.platforms.huawei_vrp.info import get_flash_info
@@ -16,6 +19,75 @@ _RETRY_DELAY_SECONDS = 1
 # -------------------------------------------------------
 # Helper (pure logic)
 # -------------------------------------------------------
+
+def _connect_dedicated(client) -> paramiko.SSHClient:
+    """
+    Connect a plain paramiko SSHClient using the same credentials as
+    client.device — deliberately NOT Netmiko's ConnectHandler, which
+    always opens an interactive shell channel as part of connecting.
+    That's exactly the condition (an interactive shell channel sharing a
+    transport with an SFTP channel) that makes this device's SFTP
+    subsystem hang for minutes before resetting the connection — using
+    ConnectHandler again for a "separate" connection just recreates the
+    same problem with a second shell session. Plain paramiko opens only
+    the channels we explicitly ask for. See
+    docs/problems/huawei-vrp-sftp-open-failure.md.
+    """
+    device = client.device
+    key_file = device.get("key_file")
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(
+        hostname=device["host"],
+        port=device.get("port") or 22,
+        username=device["username"],
+        password=device.get("password"),
+        key_filename=os.path.abspath(os.path.expanduser(key_file)) if key_file else None,
+        passphrase=device.get("passphrase"),
+        look_for_keys=bool(device.get("use_keys")),
+        allow_agent=False,
+        disabled_algorithms=device.get("disabled_algorithms"),
+    )
+    return ssh
+
+
+@contextmanager
+def _dedicated_sftp(client, *, timeout: float | None = None):
+    """
+    Open SFTP on a brand-new, dedicated SSH connection with no
+    interactive shell channel — never client.conn's interactive CLI
+    session, and not a second Netmiko session either (see
+    _connect_dedicated()).
+
+    Also issues one warm-up sftp.normalize(".") before yielding: this
+    device's SFTP server rejects an OPEN-for-write that's the very first
+    request on a freshly opened channel with an empty SSH_FX_FAILURE —
+    one prior read-only request on the same channel is enough to make
+    every following write succeed. See
+    docs/problems/huawei-vrp-sftp-open-failure.md for how both this and
+    the shared-transport-hang issue were found.
+
+    Closes the SFTP client and the dedicated connection on exit, even on
+    exception.
+    """
+    debug_log(client, "opening dedicated SFTP connection (plain paramiko, no interactive shell channel)")
+    ssh = _connect_dedicated(client)
+    try:
+        sftp = ssh.open_sftp()
+        try:
+            if timeout is not None:
+                sftp.get_channel().settimeout(timeout)
+            debug_log(client, "dedicated SFTP connection open, sending warm-up normalize('.')")
+            cwd = sftp.normalize(".")
+            debug_log(client, "warm-up normalize('.') ok, server cwd: %s", cwd)
+            yield sftp
+        finally:
+            sftp.close()
+    finally:
+        ssh.close()
+        debug_log(client, "dedicated SFTP connection closed")
+
 
 def compute_local_md5(path: Path) -> str:
     """
@@ -42,19 +114,16 @@ def upload_files(
     """
     Upload local files to Huawei VRP via SFTP.
 
-    - no connect/disconnect
+    Opens its own dedicated SSH connection for SFTP (see
+    _dedicated_sftp()) rather than reusing client.conn's interactive CLI
+    session — that connection/channel is untouched by this function.
+
+    - no connect/disconnect (of client.conn — this opens and closes its
+      own separate SFTP connection internally, every call)
     - raises exceptions on failure
     """
 
-    sftp = client.conn.remote_conn_pre.open_sftp()
-    # This device's SFTP server rejects an OPEN-for-write with an empty
-    # SSH_FX_FAILURE if it's the first request on a freshly opened
-    # channel; one prior read-only request makes every following write
-    # succeed. OpenSSH's sftp client always sends a REALPATH on session
-    # start for this reason — paramiko doesn't, so we do it explicitly.
-    sftp.normalize(".")
-
-    try:
+    with _dedicated_sftp(client) as sftp:
         for path in files:
             if not path.exists():
                 raise FileNotFoundError(path)
@@ -66,14 +135,14 @@ def upload_files(
                 path,
                 remote_path,
             )
+            debug_log(client, "sftp.put starting: %s -> %s", path, remote_path)
 
             sftp.put(
                 str(path),
                 remote_path,
             )
 
-    finally:
-        sftp.close()
+            debug_log(client, "sftp.put finished: %s -> %s", path, remote_path)
 
 
 def verify_remote_file(client, *, filename: str, expected_size: int) -> dict:
@@ -147,14 +216,7 @@ def upload_with_retry(
 
     for attempt in range(1, retries + 1):
         try:
-            sftp = client.conn.remote_conn_pre.open_sftp()
-            try:
-                sftp.get_channel().settimeout(timeout)
-                # See upload_files()'s matching comment: this device's SFTP
-                # server needs one prior read-only request before it will
-                # accept an OPEN-for-write on a freshly opened channel.
-                sftp.normalize(".")
-
+            with _dedicated_sftp(client, timeout=timeout) as sftp:
                 for path in files:
                     if not path.exists():
                         raise FileNotFoundError(path)
@@ -170,8 +232,11 @@ def upload_with_retry(
                         attempt, retries, path, remote_path,
                     )
                     sftp.put(str(path), remote_path)
-            finally:
-                sftp.close()
+                    debug_log(
+                        client,
+                        "upload attempt %d/%d finished: %s -> %s",
+                        attempt, retries, path, remote_path,
+                    )
 
             results = {}
             for path in files:

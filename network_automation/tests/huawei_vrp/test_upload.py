@@ -48,17 +48,17 @@ class FakeSFTP:
         pass
 
 
-class FakeRemoteConnPre:
+class FakeConn:
+    """Stands in for the plain paramiko.SSHClient _connect_dedicated() returns."""
+
     def __init__(self, sftp):
         self._sftp = sftp
 
     def open_sftp(self):
         return self._sftp
 
-
-class FakeConn:
-    def __init__(self, sftp):
-        self.remote_conn_pre = FakeRemoteConnPre(sftp)
+    def close(self):
+        pass
 
 
 # -------------------------------------------------------
@@ -100,9 +100,12 @@ def test_upload_files_success(monkeypatch, huawei_client, tmp_path):
     monkeypatch.setattr(huawei_client, "connect", lambda: None)
     monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
 
-    # ---- fake SFTP ----
+    # ---- fake SFTP (dedicated connection opened internally by upload_files()) ----
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
 
     # ---- run upload ----
     result = huawei_client.upload(
@@ -141,7 +144,10 @@ def test_upload_multiple_files(monkeypatch, huawei_client, tmp_path):
     monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
 
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
 
     result = huawei_client.upload(
         files=[str(f) for f in files],
@@ -165,7 +171,10 @@ def test_upload_returns_none_when_return_result_false(monkeypatch, huawei_client
     monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
 
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
 
     result = huawei_client.upload(
         files=[str(local_file)],
@@ -187,7 +196,10 @@ def test_upload_missing_local_file_raises(monkeypatch, huawei_client, tmp_path):
     monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
 
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
 
     with pytest.raises(RuntimeError, match="ghost.cfg"):
         huawei_client.upload(
@@ -208,7 +220,10 @@ def test_upload_remote_dir_trailing_slash_normalised(monkeypatch, huawei_client,
     monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
 
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
 
     huawei_client.upload(
         files=[str(local_file)],
@@ -286,7 +301,10 @@ def test_upload_with_retry_success_first_attempt(mocker, huawei_client, tmp_path
     local_file.write_bytes(b"firmware contents")
 
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        return_value=FakeConn(fake_sftp),
+    )
     _mock_flash_info_for(mocker, [local_file])
 
     result = upload_with_retry(
@@ -303,7 +321,10 @@ def test_upload_with_retry_succeeds_after_one_failure(mocker, huawei_client, tmp
     local_file.write_bytes(b"firmware contents")
 
     fake_sftp = FakeSFTP(fail_first_n=1)
-    huawei_client.conn = FakeConn(fake_sftp)
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        return_value=FakeConn(fake_sftp),
+    )
     _mock_flash_info_for(mocker, [local_file])
     mock_sleep = mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
 
@@ -321,7 +342,10 @@ def test_upload_with_retry_exhausts_retries_raises(mocker, huawei_client, tmp_pa
     local_file.write_bytes(b"firmware contents")
 
     fake_sftp = FakeSFTP(fail_first_n=99)
-    huawei_client.conn = FakeConn(fake_sftp)
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        return_value=FakeConn(fake_sftp),
+    )
     mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
 
     with pytest.raises(RuntimeError, match="Upload failed after 3 attempt"):
@@ -336,7 +360,10 @@ def test_upload_with_retry_missing_local_file_not_retried(mocker, huawei_client,
     missing_file = tmp_path / "ghost.cc"
 
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        return_value=FakeConn(fake_sftp),
+    )
     mock_sleep = mocker.patch("network_automation.platforms.huawei_vrp.upload.time.sleep")
 
     with pytest.raises(FileNotFoundError):
