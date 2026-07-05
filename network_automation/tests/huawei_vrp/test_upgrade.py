@@ -310,7 +310,8 @@ def test_verify_md5_success(huawei_client, fake_conn, tmp_path):
         "match": True,
     }
     fake_conn.send_command.assert_called_once_with(
-        f"display system file-md5 flash:/{TARGET_FILENAME}"
+        f"display system file-md5 flash:/{TARGET_FILENAME}",
+        read_timeout=300,
     )
 
 

@@ -312,13 +312,19 @@ def get_file_md5(client, filename: str) -> str:
 
     Runs: display system file-md5 flash:/<filename>.
 
+    Device-side hashing time scales with file size (observed: ~13s for a
+    162MB firmware image against Netmiko's ~10s default read_timeout,
+    tripping a false ReadTimeout mid-computation and leaving unread output
+    in the buffer for the next command) — read_timeout=300 matches the
+    other known-slow VRP command in flash.py's ensure_flash_space().
+
     - no connect/disconnect
     - only called from upgrade.py's MD5 verification step, so it never
       affects the get_info() command sequence.
     """
     command = f"display system file-md5 flash:/{filename}"
     debug_log(client, "send_command: %s", command)
-    output = client.conn.send_command(command)
+    output = client.conn.send_command(command, read_timeout=300)
     debug_log(client, "send_command response: %s", output)
     _check_cli_output(command, output)
     return _parse_file_md5(output)

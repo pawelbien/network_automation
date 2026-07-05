@@ -357,7 +357,8 @@ def test_get_file_md5(huawei_client):
 
     assert md5 == "5f8ad13d1c9c7c50cbcbc7c0e5e7f8ab"
     conn.send_command.assert_called_once_with(
-        "display system file-md5 flash:/AR650A_V300R024C00SPC200.cc"
+        "display system file-md5 flash:/AR650A_V300R024C00SPC200.cc",
+        read_timeout=300,
     )
 
 

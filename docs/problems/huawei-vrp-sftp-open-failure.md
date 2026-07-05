@@ -2,8 +2,13 @@
 
 Status: all four root causes below are fixed in `upload.py`. Fixes #1–3
 confirmed by a real ~161MB firmware transfer against a live reference
-device — that same run is what surfaced #4, now also fixed but not yet
-re-confirmed live end-to-end.
+device — that same run is what surfaced #4. Fix #4 (and #1–3 again) were
+then confirmed by a second live run (~162MB transfer, `V300R023C00SPC100`
+→ `V300R024C00SPC100`): the transfer completed, size-verified, and
+`client.conn` survived the ~16-minute transfer without hitting the
+console idle-timeout. That same run surfaced a fifth, independent bug in
+the post-upload MD5 verification step — see root cause #5, also now
+fixed but not yet re-confirmed live end-to-end.
 
 ## Symptom
 
@@ -170,6 +175,43 @@ the `with` block exits — so nothing touches `client.conn` concurrently
 once the caller (e.g. `verify_remote_file()`) needs it again. Best
 effort: if `client.conn` is already dead, it gives up silently and lets
 the real error surface at the actual point of use, same as before.
+
+## Root cause #5: get_file_md5()'s default read_timeout is too short for large files
+
+Found on the first live run after fixing #1–4 (the same ~162MB transfer
+that confirmed #4). Symptom, in order:
+
+1. The upload itself completed and passed `verify_remote_file()` (exists,
+   correct size).
+2. `verify_md5()` → `get_file_md5()` sent `display system file-md5
+   flash:/<file>`. This device echoes a text progress spinner
+   (`1%` ... `100%`) while it hashes the file on-device, which took ~13s
+   for this ~162MB file — longer than Netmiko's default `send_command()`
+   read_timeout (~10s).
+3. `send_command()` raised `ReadTimeoutError: Pattern not detected:
+   '<Huawei>' in output` partway through the spinner, even though the
+   device was still working correctly and later produced a valid MD5.
+   This left the still-arriving spinner frames, the eventual MD5 result,
+   and the following CLI prompt unread and sitting in the channel buffer.
+4. `upgrade()`'s `finally: client.disconnect()` then ran while that stale,
+   unread output was still in the buffer. Netmiko's disconnect/cleanup
+   logic (which sends `quit` and expects a `<Huawei>` prompt back) drained
+   the stale bytes first, then got nothing back for its own `quit` inside
+   its own read window, raising a second `ReadTimeoutError` with the same
+   message — this second exception is the one that actually surfaces to
+   the caller (`upgrade.py`'s example script printed "Upgrade failed:
+   Pattern not detected: '<Huawei>' in output", not the original
+   MD5-command timeout).
+
+Confirmed the transfer itself was not at fault: the raw device output
+captured before the timeout already contained a valid MD5
+(`8e86b820c04ac9381f78f4fd5992a2d3` for
+`flash:/AR650A_V300R024C00SPC100.cc` in this run).
+
+**Fix**: `get_file_md5()` in `info.py` now passes `read_timeout=300` to
+`send_command()`, matching the existing precedent in `flash.py`'s
+`ensure_flash_space()` for the other known-slow VRP command
+(re-pointing the backup startup image).
 
 ## Ruled out during investigation
 
