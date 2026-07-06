@@ -170,8 +170,7 @@ def ensure_flash_space(
     reserving space (or double-space) for a transfer that isn't going to
     happen would either force a needless cleanup or, worse, delete files
     protected by the *next* run's next_startup_image/next_startup_patch
-    once this run points them at what's already correct on flash (see
-    root cause #6 in docs/problems/huawei-vrp-sftp-open-failure.md).
+    once this run points them at what's already correct on flash.
 
     - no connect/disconnect
     """

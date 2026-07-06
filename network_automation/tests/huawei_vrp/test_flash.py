@@ -299,8 +299,7 @@ def test_ensure_flash_space_raises_when_still_insufficient_after_cleanup(mocker,
 
 
 def test_ensure_flash_space_skips_target_already_on_flash(mocker, tmp_path):
-    # Root cause #6 (docs/problems/huawei-vrp-sftp-open-failure.md): a target
-    # file already on flash with a matching MD5 won't actually be
+    # A target file already on flash with a matching MD5 won't actually be
     # re-uploaded (idempotency skips it in _upload_pending), so it must
     # contribute zero bytes — no size, no overwrite_margin — to
     # required_space, or a tight-but-sufficient device would be pushed into

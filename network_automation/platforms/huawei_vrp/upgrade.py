@@ -51,8 +51,7 @@ def configure_next_startup(client, filename: str):
     VRP itself warns this is slow ("Info: Start processing. The check may
     take a long time. Please wait...") — it re-verifies the whole firmware
     package. Observed to exceed Netmiko's ~10s default read_timeout for a
-    162MB image (same failure mode as get_file_md5, see root cause #5 in
-    docs/problems/huawei-vrp-sftp-open-failure.md): the command actually
+    162MB image (same failure mode as get_file_md5): the command actually
     succeeds on-device, but send_command() raises a false ReadTimeout
     first — read_timeout=300 matches the other known-slow VRP commands.
 
@@ -190,8 +189,7 @@ def save_configuration(client):
     *next* command's send_command() call, whose default auto_find_prompt()
     probe reads it and mistakes it for the current prompt — producing a
     search pattern that never matches again and hanging that next command
-    for its full read_timeout (root cause #9 in
-    docs/problems/huawei-vrp-sftp-open-failure.md).
+    for its full read_timeout.
 
     Confirming with an explicit expect_string instead waits for the real
     prompt to reappear (bounded by read_timeout, matching VRP's own

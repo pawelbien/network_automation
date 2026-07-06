@@ -229,8 +229,7 @@ class HuaweiVRP(BaseClient):
         code's loop then read that as "no confirmation needed" and silently
         skipped sending "y" altogether, leaving the prompt dangling on the
         device — which discards it once the session disconnects, so the
-        reboot never actually happened despite the run reporting success
-        (see root cause #8 in docs/problems/huawei-vrp-sftp-open-failure.md).
+        reboot never actually happened despite the run reporting success.
 
         Uses pattern-based send_command() for the initial "reboot" send,
         which waits for the prompt text itself (bounded by read_timeout)

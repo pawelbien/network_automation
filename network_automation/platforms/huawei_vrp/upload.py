@@ -19,8 +19,7 @@ _RETRY_DELAY_SECONDS = 1
 # How often to nudge client.conn's interactive CLI session while a long
 # SFTP transfer runs on the separate dedicated connection. Well under
 # this device's console idle-timeout (observed to fire during a real
-# ~15-minute firmware transfer — see docs/problems/
-# huawei-vrp-sftp-open-failure.md) — an SSH-transport-level keepalive
+# ~15-minute firmware transfer) — an SSH-transport-level keepalive
 # (client.device's keepalive=30) does NOT reset it, since it never
 # touches the CLI application layer.
 _CLI_KEEPALIVE_INTERVAL_SECONDS = 60

@@ -56,8 +56,7 @@ def test_reboot_does_not_raise_on_normal_yn_prompt(huawei_client):
 
 
 def test_reboot_confirms_yn_prompt_delayed_by_please_wait_message(huawei_client):
-    # Root cause #8 (docs/problems/huawei-vrp-sftp-open-failure.md): VRP can
-    # print an "Info: ... please wait" message before the real [y/n] prompt
+    # VRP can print an "Info: ... please wait" message before the real [y/n] prompt
     # shows up. The old send_command_timing()-based loop returned as soon as
     # the channel went idle during that pause, saw no "y/n" yet, and silently
     # skipped confirming — so the reboot never happened. Pattern-based
