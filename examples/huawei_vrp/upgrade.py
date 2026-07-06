@@ -89,7 +89,7 @@ def main():
         "patch_file": patch_file,
 
         # --- reconnect polling after reboot ---
-        "reconnect_timeout": 300,  # seconds to wait for SSH to come back
+        "reconnect_timeout": 600,  # seconds to wait for SSH to come back
         "reconnect_delay": 10,     # polling interval while waiting
 
         # --- exclusive per-device lock (one upgrade() at a time) ---
