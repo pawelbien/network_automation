@@ -79,6 +79,17 @@ def test_parse_patch_version_bare():
     assert parse_patch_version("SPH12c5") == (12, 2, 5)
 
 
+def test_parse_patch_version_no_letter_suffix():
+    # Some release trains report a plain "SPH<number>" with no letter/build
+    # suffix at all (confirmed live against a real AR650 device, target
+    # patch "SPH221") rather than the "SPH<branch><letter><number>" shape.
+    assert parse_patch_version("SPH221") == (221, -1, 0)
+
+
+def test_parse_patch_version_no_letter_suffix_orders_before_lettered_build():
+    assert parse_patch_version("SPH221a0") > parse_patch_version("SPH221")
+
+
 def test_parse_patch_version_empty_raises():
     with pytest.raises(ValueError):
         parse_patch_version("")

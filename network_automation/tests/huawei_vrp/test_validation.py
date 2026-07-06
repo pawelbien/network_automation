@@ -113,6 +113,21 @@ def test_validate_patch_firmware_compatibility_mismatched_release_raises():
         )
 
 
+def test_validate_patch_firmware_compatibility_no_letter_suffix_matching_release_ok():
+    # Letter-less "SPH<branch>" naming convention (e.g. "SPH221"), confirmed
+    # live against a real AR650 device.
+    validate_patch_firmware_compatibility(
+        "AR650A_V300R024SPH221.pat", "V300R024C00SPC200"
+    )  # must not raise
+
+
+def test_validate_patch_firmware_compatibility_no_letter_suffix_mismatched_release_raises():
+    with pytest.raises(ValueError, match="release train"):
+        validate_patch_firmware_compatibility(
+            "AR650A_V300R023SPH221.pat", "V300R024C00SPC200"
+        )
+
+
 def test_validate_patch_firmware_compatibility_skips_unrecognized_filename():
     validate_patch_firmware_compatibility(
         "custom-patch.pat", "V300R024C00SPC200"

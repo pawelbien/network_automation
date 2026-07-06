@@ -33,10 +33,11 @@ _FIRMWARE_STRUCTURED_RE = re.compile(
     r'^([A-Za-z0-9]+)_V\d+R\d+C\d+SPC\d+\.cc$', re.IGNORECASE
 )
 
-# Matches '<platform>_V<major>R<release>SPH<branch><letter><number>.pat'
-# (e.g. "AR650A_V300R024SPH1b0.pat"); same best-effort skip otherwise.
+# Matches '<platform>_V<major>R<release>SPH<branch>[<letter><number>].pat'
+# (e.g. "AR650A_V300R024SPH1b0.pat" or the letter-less "AR650A_V300R024SPH221.pat"
+# convention some release trains use instead); same best-effort skip otherwise.
 _PATCH_STRUCTURED_RE = re.compile(
-    r'^[A-Za-z0-9]+_V(\d+)R(\d+)SPH\d+[A-Za-z]\d+\.pat$', re.IGNORECASE
+    r'^[A-Za-z0-9]+_V(\d+)R(\d+)SPH\d+(?:[A-Za-z]\d+)?\.pat$', re.IGNORECASE
 )
 
 _LEADING_ALPHA_RE = re.compile(r'^[A-Za-z]+')

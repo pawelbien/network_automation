@@ -24,7 +24,9 @@ the debug log: upload skipped (idempotent, MD5 match), MD5 verified,
 `[y/n]` prompt confirmed correctly, and post-reboot validation (version,
 routing, interfaces, alarms) all passed —
 `result.metadata['post_reboot_validation_passed'] == True`. All nine root
-causes are now considered closed.
+causes were considered closed at that point; a sixth live run (this time
+requesting an actual patch install, target patch `SPH221`) then surfaced
+root cause #10, now also fixed.
 
 ## Symptom
 
@@ -449,6 +451,38 @@ initial `reboot` send in root cause #8's fix. The initial `save` send
 itself was not changed — its `[Y/N]:` prompt arrived well within the
 default idle window in every observed run, with no evidence of the same
 race.
+
+## Root cause #10: parse_patch_version() only accepted the "SPH<branch><letter><number>" naming convention, not the letter-less "SPH<number>" one
+
+Found on a sixth live run, the first to actually request a patch install
+(`priv_hua_update.py ... SPH221 .../AR650A_V300R024SPH221.pat`) rather than
+a firmware-only upgrade. Failed immediately, before any connection work
+beyond reading device info:
+
+```
+Upgrade failed: Unparseable patch version: 'SPH221'
+```
+
+`version.py`'s `_PATCH_RE` (`SPH(\d+)([A-Za-z])(\d+)`) was written against
+one real Huawei patch-naming convention — a branch number, a build letter,
+and a sub-build number (e.g. `SPH1b0`) — and assumed that was the only
+shape a patch version ever took, both in the docstring and in
+`validation.py`'s matching `_PATCH_STRUCTURED_RE` for `.pat` filenames.
+This release train instead uses a plain `SPH<number>` with no letter/build
+suffix at all (`SPH221`, matching the actual filename
+`AR650A_V300R024SPH221.pat` supplied on the CLI) — a second, equally real,
+Huawei convention. `determine_operation_type()` calls `is_patch_newer()`
+→ `parse_patch_version(target_patch)` to validate the requested target
+before anything else happens, so this raised immediately.
+
+**Fix**: `_PATCH_RE` in `version.py` and `_PATCH_STRUCTURED_RE` in
+`validation.py` both now treat the trailing `<letter><number>` sub-build
+as optional (`SPH(\d+)(?:([A-Za-z])(\d+))?`). When absent,
+`parse_patch_version()` returns `(branch, -1, 0)` — the `-1` sentinel
+sorts before any lettered sub-build at the same branch number (so a later
+`SPH221a0` hotfix would still correctly compare as newer than plain
+`SPH221`), consistent with the ordering the lettered convention already
+implied.
 
 ## Ruled out during investigation
 

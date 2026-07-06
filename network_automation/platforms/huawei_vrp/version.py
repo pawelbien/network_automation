@@ -11,9 +11,11 @@ _FIRMWARE_RE = re.compile(r'^V(\d+)R(\d+)C\d+SPC(\d+)$', re.IGNORECASE)
 
 # Patch version is embedded in a larger device-reported string (e.g. the raw
 # "ARV300R023SPH1b0" from `display patch-information`), so this searches for
-# the SPH<branch><letter><number> substring rather than anchoring the whole
-# string like _FIRMWARE_RE does.
-_PATCH_RE = re.compile(r'SPH(\d+)([A-Za-z])(\d+)', re.IGNORECASE)
+# the SPH<branch>[<letter><number>] substring rather than anchoring the whole
+# string like _FIRMWARE_RE does. The trailing <letter><number> sub-build is
+# optional: some release trains report a plain "SPH<branch>" with no letter
+# suffix at all (e.g. "SPH221"), confirmed live against a real AR650 device.
+_PATCH_RE = re.compile(r'SPH(\d+)(?:([A-Za-z])(\d+))?', re.IGNORECASE)
 
 OPERATION_NONE = "NONE"
 OPERATION_PATCH_ONLY = "PATCH_ONLY"
@@ -68,9 +70,13 @@ def parse_patch_version(patch_version: str) -> tuple[int, int, int]:
     (branch, build_letter_as_ordinal, build_number) tuple.
 
     Example: "SPH1b0" -> (1, 1, 0); the letter ordinal is 0-based (a=0, b=1, ...).
+    Example: "SPH221" (no letter suffix, a naming convention some release
+    trains use instead) -> (221, -1, 0); the sentinel -1 sorts before any
+    lettered sub-build at the same branch number, e.g. a later "SPH221a0"
+    hotfix would compare as newer than plain "SPH221".
 
     The input may be the raw device-reported string, which embeds a release
-    train prefix (e.g. "ARV300R023SPH1b0") — the SPH<branch><letter><number>
+    train prefix (e.g. "ARV300R023SPH1b0") — the SPH<branch>[<letter><number>]
     substring is located anywhere in the string, not anchored.
 
     Versions are never compared as raw strings — raises ValueError on any
@@ -85,6 +91,8 @@ def parse_patch_version(patch_version: str) -> tuple[int, int, int]:
         raise ValueError(f"Unparseable patch version: {patch_version!r}")
 
     branch, letter, number = m.groups()
+    if letter is None:
+        return (int(branch), -1, 0)
     return (int(branch), ord(letter.lower()) - ord('a'), int(number))
 
 
