@@ -19,6 +19,13 @@ side only*; OperationResult metadata always exposes the caller-supplied
 logical name (docs/architecture.md's platform-naming-isolation rule),
 exactly like mikrotik_routeros/backup.py.
 
+Download uses a dedicated, non-interactive-shell SFTP connection (see
+upload.py's _dedicated_sftp()/_keep_cli_alive_during()), not
+client.conn.remote_conn_pre — confirmed live (2026-07-08, AR650) that
+sharing the SFTP channel with client.conn's interactive Netmiko shell
+session hangs indefinitely (docs/problems/huawei-vrp-sftp-open-failure.md's
+shared-transport-hang pitfall applies to GET, not just PUT).
+
 UNVERIFIED ON REAL HARDWARE — validate before production use:
   1. `save <filename>` semantics: whether VRP accepts the `flash:/`-
      prefixed form used here (inferred from adjacent evidence, not from a
@@ -31,10 +38,6 @@ UNVERIFIED ON REAL HARDWARE — validate before production use:
      already exercised by the existing upgrade() flash-cleanup path, but
      has not specifically been exercised against nauto_-prefixed backup
      files on real hardware.
-  3. SFTP GET (download direction) is believed to work unmodified — unlike
-     SFTP PUT (upload), known-broken on some hardware (e.g. AR650) and
-     tracked/fixed separately, explicitly out of scope here — but this
-     exact save→GET sequence has not been separately confirmed live.
 """
 
 from network_automation.results import OperationResult
@@ -42,6 +45,7 @@ from network_automation.platforms.huawei_vrp.debug_log import debug_log
 from network_automation.platforms.huawei_vrp.info import get_flash_info
 from network_automation.platforms.huawei_vrp.flash import _delete_file
 from network_automation.platforms.huawei_vrp.upgrade import save_configuration
+from network_automation.platforms.huawei_vrp.upload import _dedicated_sftp, _keep_cli_alive_during
 
 BACKUP_PREFIX = "nauto_"
 BACKUP_EXTENSION = ".zip"
@@ -119,11 +123,8 @@ def run_backup(client, name: str, *, return_result: bool = False, download_dir: 
         local_path = f"{download_dir.rstrip('/')}/{logical_file}"
         client.logger.info("Downloading backup to %s", local_path)
 
-        sftp = client.conn.remote_conn_pre.open_sftp()
-        try:
+        with _keep_cli_alive_during(client), _dedicated_sftp(client) as sftp:
             sftp.get(remote_path, local_path)
-        finally:
-            sftp.close()
 
         result.metadata["local_path"] = local_path
         result.message = f"Backup '{remote_path}' created and downloaded"

@@ -9,12 +9,27 @@ from network_automation.platforms.huawei_vrp.backup import cleanup_old_backups, 
 
 
 # -------------------------------------------------------
-# Fake SFTP stack
+# Fake SFTP stack (dedicated connection opened internally by run_backup())
 # -------------------------------------------------------
+
+class FakeChannel:
+    def __init__(self):
+        self.timeout = None
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
 
 class FakeSFTP:
     def __init__(self):
         self.downloads = []
+        self.channel = FakeChannel()
+
+    def get_channel(self):
+        return self.channel
+
+    def normalize(self, path):
+        return "/"
 
     def get(self, remote, local):
         self.downloads.append((remote, local))
@@ -23,12 +38,17 @@ class FakeSFTP:
         pass
 
 
-class FakeRemoteConnPre:
+class FakeConn:
+    """Stands in for the plain paramiko.SSHClient _connect_dedicated() returns."""
+
     def __init__(self, sftp):
         self._sftp = sftp
 
     def open_sftp(self):
         return self._sftp
+
+    def close(self):
+        pass
 
 
 @pytest.fixture
@@ -105,7 +125,10 @@ def test_run_backup_returns_result_and_downloads(monkeypatch, huawei_client, fak
     )
 
     fake_sftp = FakeSFTP()
-    fake_conn.remote_conn_pre = FakeRemoteConnPre(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
     fake_conn.send_command_timing.side_effect = [
         "Save the configuration successfully.<Huawei>",
     ]
@@ -141,7 +164,10 @@ def test_run_backup_return_result_false_returns_none(monkeypatch, huawei_client,
     )
 
     fake_sftp = FakeSFTP()
-    fake_conn.remote_conn_pre = FakeRemoteConnPre(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
     fake_conn.send_command_timing.side_effect = [
         "Save the configuration successfully.<Huawei>",
     ]
