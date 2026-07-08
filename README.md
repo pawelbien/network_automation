@@ -13,7 +13,7 @@ The library is designed to work consistently:
 Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
-- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 
 ---
 
@@ -51,6 +51,7 @@ Not every operation is available on every platform.
 - Command execution (`run`)
 - File download (`download`) — retrieve files from device via SFTP
 - File upload (`upload`) — push local files to the device via SFTP
+- Configuration backup and download (`backup`) — named on-device config snapshot (`save <filename>`) + SFTP download, with cleanup of old `nauto_`-prefixed snapshots
 - Firmware upgrade (`upgrade`) — firmware, patch, or both, single-unit devices (see below)
 
 ---
@@ -222,6 +223,11 @@ client.upload(
     files=["/tmp/firmware.cc", "/tmp/patch.pat"],
     remote_dir="flash:/",
 )
+
+# Configuration backup: saves a named snapshot on-device (flash:/nauto_daily.zip)
+# and downloads it locally as daily.zip; also removes old nauto_-prefixed
+# snapshots before creating the new one.
+client.backup("daily", download_dir="/tmp/backups")
 ```
 
 CLI-style scripts live in `examples/huawei_vrp/`:

@@ -255,6 +255,7 @@ client.get_info()                                    # unified member model
 client.run(["display version"], return_result=True)  # command execution
 client.download(files=["flash:/config.zip"], local_dir="/tmp/backups")  # SFTP download
 client.upload(files=["/tmp/fw.cc"], remote_dir="flash:/")               # SFTP upload
+client.backup("daily", download_dir="/tmp/backups")                     # named config snapshot + SFTP download
 ```
 
 `client.upgrade()` uploads firmware/patch files through the same SFTP path as
@@ -444,6 +445,7 @@ tests/
 │   └── test_upload.py           # ← upload.py
 └── huawei_vrp/
     ├── conftest.py              # huawei_client fixture
+    ├── test_backup.py           # ← backup.py
     ├── test_download.py         # ← download.py
     ├── test_info.py             # ← info.py
     ├── test_run.py              # ← run.py
