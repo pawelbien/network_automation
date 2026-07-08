@@ -296,6 +296,29 @@ def test_save_configuration_does_not_raise_on_normal_yn_prompt(huawei_client, fa
     assert kwargs["read_timeout"] == 300
 
 
+def test_save_configuration_no_filename_uses_bare_save_command(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+    fake_conn.send_command_timing.side_effect = [
+        "Save the configuration successfully.<Huawei>",
+    ]
+
+    save_configuration(huawei_client)
+
+    fake_conn.send_command_timing.assert_called_once_with("save")
+
+
+def test_save_configuration_with_filename_builds_save_filename_command(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+    fake_conn.send_command_timing.side_effect = [
+        "Save the configuration successfully.<Huawei>",
+    ]
+
+    save_configuration(huawei_client, "flash:/nauto_daily.zip")
+
+    fake_conn.send_command_timing.assert_called_once_with("save flash:/nauto_daily.zip")
+    fake_conn.send_command.assert_not_called()
+
+
 # ---------- verify_md5 ----------
 
 def test_verify_md5_success(huawei_client, fake_conn, tmp_path):

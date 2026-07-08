@@ -10,6 +10,7 @@ from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.huawei_vrp.download import run_download
 from network_automation.platforms.huawei_vrp.upload import run_upload
+from network_automation.platforms.huawei_vrp.backup import run_backup
 from network_automation.platforms.huawei_vrp.info import read_info
 from network_automation.platforms.huawei_vrp.run import run as run_helper
 from network_automation.platforms.huawei_vrp.upgrade import upgrade as upgrade_helper
@@ -212,6 +213,25 @@ class HuaweiVRP(BaseClient):
             files=files,
             remote_dir=remote_dir,
             return_result=return_result,
+        )
+
+    # -------------------------------------------------------
+    # Backup
+    # -------------------------------------------------------
+
+    def backup(
+        self,
+        name: str,
+        *,
+        return_result: bool = False,
+        download_dir: str = ".",
+    ):
+        """Save a named configuration snapshot on the device and download it via SFTP."""
+        return run_backup(
+            self,
+            name,
+            return_result=return_result,
+            download_dir=download_dir,
         )
 
     # -------------------------------------------------------

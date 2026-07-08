@@ -176,9 +176,19 @@ def apply_patch(client, filename: str, expected_patch_version: str):
     return _verify_patch_active(client, expected_patch_version)
 
 
-def save_configuration(client):
+def save_configuration(client, filename: str | None = None):
     """
     Save the running configuration, confirming any interactive [Y/N] prompt.
+
+    filename — when given, saves to this device-side path instead of the
+        existing startup configuration file (`save <filename>` instead of
+        bare `save`). UNVERIFIED ON REAL HARDWARE: whether VRP accepts a
+        `flash:/`-prefixed path here, and whether saving under an explicit
+        filename repoints "next startup saved-configuration file"
+        (`display startup`) as a side effect the way the no-filename form
+        does not. Used by backup.py::run_backup() for named on-device
+        snapshots; the existing no-filename call sites below are
+        unaffected and their tested behavior is unchanged.
 
     VRP's "y" confirmation is followed by an asynchronous "It will take
     several minutes to save configuration file, please wait..." notice
@@ -200,11 +210,13 @@ def save_configuration(client):
 
     - no connect/disconnect
     """
+    command = f"save {filename}" if filename else "save"
+
     # send_command_timing output here is an interactive [Y/N] confirmation
     # prompt, not command output to validate — the CLI-error check does not
     # apply to prompt-handling loops.
-    debug_log(client, "send_command_timing: %s", "save")
-    output = client.conn.send_command_timing("save")
+    debug_log(client, "send_command_timing: %s", command)
+    output = client.conn.send_command_timing(command)
     debug_log(client, "send_command_timing response: %s", output)
 
     for _ in range(3):
