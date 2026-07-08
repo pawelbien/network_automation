@@ -1,16 +1,34 @@
 # network_automation/tests/huawei_vrp/test_download.py
 
-from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
 from network_automation.results import OperationResult
 
 
 # -------------------------------------------------------
-# Fake SFTP stack
+# Fake SFTP stack (dedicated connection opened internally by download_files())
 # -------------------------------------------------------
+
+class FakeChannel:
+    def __init__(self):
+        self.timeout = None
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
 
 class FakeSFTP:
     def __init__(self):
         self.downloads = []
+        self.channel = FakeChannel()
+
+    def get_channel(self):
+        return self.channel
+
+    def normalize(self, path):
+        return "/"
 
     def get(self, remote, local):
         self.downloads.append((remote, local))
@@ -19,24 +37,29 @@ class FakeSFTP:
         pass
 
 
-class FakeRemoteConnPre:
+class FakeConn:
+    """Stands in for the plain paramiko.SSHClient _connect_dedicated() returns."""
+
     def __init__(self, sftp):
         self._sftp = sftp
 
     def open_sftp(self):
         return self._sftp
 
+    def close(self):
+        pass
 
-class FakeConn:
-    def __init__(self, sftp):
-        self.remote_conn_pre = FakeRemoteConnPre(sftp)
+
+@pytest.fixture
+def fake_conn():
+    return MagicMock()
 
 
 # -------------------------------------------------------
 # Tests
 # -------------------------------------------------------
 
-def test_download_files_success(monkeypatch, huawei_client, tmp_path):
+def test_download_files_success(monkeypatch, huawei_client, fake_conn, tmp_path):
     """
     Download single file via SFTP.
     """
@@ -45,9 +68,13 @@ def test_download_files_success(monkeypatch, huawei_client, tmp_path):
     monkeypatch.setattr(huawei_client, "connect", lambda: None)
     monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
 
-    # ---- fake SFTP ----
+    # ---- fake dedicated SFTP connection ----
     fake_sftp = FakeSFTP()
-    huawei_client.conn = FakeConn(fake_sftp)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
+    huawei_client.conn = fake_conn
 
     # ---- run download ----
     result = huawei_client.download(

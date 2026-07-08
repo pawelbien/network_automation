@@ -3,6 +3,7 @@
 from pathlib import Path
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
+from network_automation.platforms.huawei_vrp.upload import _dedicated_sftp, _keep_cli_alive_during
 
 
 # -------------------------------------------------------
@@ -18,16 +19,23 @@ def download_files(
     """
     Download files from device via SFTP.
 
-    - no connect/disconnect
+    Uses a dedicated, non-interactive-shell SFTP connection (see
+    upload.py's _dedicated_sftp()/_keep_cli_alive_during()), not
+    client.conn.remote_conn_pre — sharing the SFTP channel with
+    client.conn's interactive Netmiko shell session hangs indefinitely on
+    this hardware (docs/problems/huawei-vrp-sftp-open-failure.md's
+    shared-transport-hang pitfall; confirmed live 2026-07-08 for GET via
+    backup.py, same fix applied here).
+
+    - no connect/disconnect (of client.conn — this opens and closes its
+      own separate SFTP connection internally, every call)
     - raises exceptions on failure
     """
 
     local_dir = Path(local_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    sftp = client.conn.remote_conn_pre.open_sftp()
-
-    try:
+    with _keep_cli_alive_during(client), _dedicated_sftp(client) as sftp:
         for filename in files:
             local_path = local_dir / filename
 
@@ -36,14 +44,14 @@ def download_files(
                 filename,
                 local_path,
             )
+            debug_log(client, "sftp.get starting: %s -> %s", filename, local_path)
 
             sftp.get(
                 filename,
                 str(local_path),
             )
 
-    finally:
-        sftp.close()
+            debug_log(client, "sftp.get finished: %s -> %s", filename, local_path)
 
 
 # -------------------------------------------------------
