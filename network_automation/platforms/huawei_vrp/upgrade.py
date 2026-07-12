@@ -188,6 +188,11 @@ def apply_patch(client, filename: str, expected_patch_version: str):
     - no connect/disconnect
     - raises RuntimeError if the patch isn't running or the version mismatches
     """
+    client.logger.info(
+        "Applying patch flash:/%s (device loads and activates the patch, "
+        "can take a while)...",
+        filename,
+    )
     command = f"patch load flash:/{filename} all run"
     debug_log(client, "send_command: %s", command)
     ack = client.conn.send_command(command, read_timeout=300)
