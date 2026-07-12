@@ -94,8 +94,20 @@ def test_parse_alarm_active_critical():
 def test_parse_interface_brief():
     result = _parse_interface_brief(_DISPLAY_INTERFACE_BRIEF)
     assert result["interfaces"] == {
-        "GigabitEthernet0/0/0": {"physical_status": "up", "protocol_status": "up"},
-        "GigabitEthernet0/0/1": {"physical_status": "down", "protocol_status": "down"},
+        "GigabitEthernet0/0/0": {"physical_status": "up", "protocol_status": "up", "admin_down": False},
+        "GigabitEthernet0/0/1": {"physical_status": "down", "protocol_status": "down", "admin_down": False},
+    }
+
+
+def test_parse_interface_brief_admin_down():
+    output = (
+        "PHY: Physical\n"
+        "Interface                   PHY    Protocol\n"
+        "GigabitEthernet0/0/2        *down  down\n"
+    )
+    result = _parse_interface_brief(output)
+    assert result["interfaces"] == {
+        "GigabitEthernet0/0/2": {"physical_status": "down", "protocol_status": "down", "admin_down": True},
     }
 
 
@@ -146,8 +158,8 @@ def test_collect_health_snapshot():
         "memory_usage_percent": 50.0,
         "alarms": [],
         "interfaces": {
-            "GigabitEthernet0/0/0": {"physical_status": "up", "protocol_status": "up"},
-            "GigabitEthernet0/0/1": {"physical_status": "down", "protocol_status": "down"},
+            "GigabitEthernet0/0/0": {"physical_status": "up", "protocol_status": "up", "admin_down": False},
+            "GigabitEthernet0/0/1": {"physical_status": "down", "protocol_status": "down", "admin_down": False},
         },
     }
 
@@ -231,6 +243,42 @@ def test_evaluate_health_down_interfaces_within_tolerance():
     }
     result = _evaluate(snapshot, max_unexpected_down_interfaces=1)
     assert result["passed"] is True
+
+
+def test_evaluate_health_admin_down_interface_not_counted():
+    snapshot = {
+        **_BASE_SNAPSHOT,
+        "interfaces": {
+            "Gi0/0/0": {"physical_status": "down", "protocol_status": "down", "admin_down": True},
+        },
+    }
+    result = _evaluate(snapshot, max_unexpected_down_interfaces=0)
+    assert result == {"violations": [], "passed": True}
+
+
+def test_evaluate_health_admin_down_unlimited():
+    snapshot = {
+        **_BASE_SNAPSHOT,
+        "interfaces": {
+            f"Gi0/0/{i}": {"physical_status": "down", "protocol_status": "down", "admin_down": True}
+            for i in range(5)
+        },
+    }
+    result = _evaluate(snapshot, max_unexpected_down_interfaces=0)
+    assert result["passed"] is True
+
+
+def test_evaluate_health_admin_down_does_not_mask_real_down_interfaces():
+    snapshot = {
+        **_BASE_SNAPSHOT,
+        "interfaces": {
+            "Gi0/0/0": {"physical_status": "down", "protocol_status": "down", "admin_down": True},
+            "Gi0/0/1": {"physical_status": "down", "protocol_status": "down", "admin_down": False},
+        },
+    }
+    result = _evaluate(snapshot, max_unexpected_down_interfaces=0)
+    assert result["passed"] is False
+    assert any("1 interface(s) down" in v for v in result["violations"])
 
 
 # ---------- run_pre_upgrade_health_check ----------

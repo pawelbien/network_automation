@@ -92,18 +92,25 @@ def _parse_interface_brief(output: str) -> dict:
     """
     Parse 'display interface brief' output.
 
-    Returns {"interfaces": {name: {"physical_status": str, "protocol_status": str}, ...}}.
-    Dict keyed by interface name (not a list) so callers can diff by key
-    without re-sorting — see compare_interfaces_to_baseline().
+    Returns {"interfaces": {name: {"physical_status": str, "protocol_status": str,
+    "admin_down": bool}, ...}}. "physical_status"/"protocol_status" are always
+    "up" or "down" (the "*" prefix VRP uses to mark administratively-down
+    interfaces is stripped, not left embedded in the string); "admin_down" is
+    True when either status was starred. Dict keyed by interface name (not a
+    list) so callers can diff by key without re-sorting — see
+    compare_interfaces_to_baseline().
     """
     interfaces = {}
     for line in output.splitlines():
         m = _INTERFACE_LINE_RE.match(line.strip())
         if not m:
             continue
+        phys_raw = m.group("phys")
+        proto_raw = m.group("proto")
         interfaces[m.group("name")] = {
-            "physical_status": m.group("phys"),
-            "protocol_status": m.group("proto"),
+            "physical_status": phys_raw.lstrip("*"),
+            "protocol_status": proto_raw.lstrip("*"),
+            "admin_down": phys_raw.startswith("*") or proto_raw.startswith("*"),
         }
     return {"interfaces": interfaces}
 
@@ -187,6 +194,11 @@ def evaluate_health(
     """
     Pure evaluation against configured thresholds — no device I/O.
 
+    Interfaces with admin_down=True (administratively shut down, VRP's "*down")
+    are excluded from the down-interface count entirely — they're an
+    intentional operator choice, not a fault, so no amount of them blocks
+    the upgrade regardless of max_unexpected_down_interfaces.
+
     Returns {"violations": [str, ...], "passed": bool}.
     """
     violations = []
@@ -212,7 +224,8 @@ def evaluate_health(
 
     down_count = sum(
         1 for iface in snapshot["interfaces"].values()
-        if iface["physical_status"] != "up" or iface["protocol_status"] != "up"
+        if not iface.get("admin_down", False)
+        and (iface["physical_status"] != "up" or iface["protocol_status"] != "up")
     )
     if down_count > max_unexpected_down_interfaces:
         violations.append(
