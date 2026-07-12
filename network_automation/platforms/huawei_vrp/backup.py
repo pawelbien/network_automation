@@ -28,26 +28,33 @@ pitfall applies to GET, not just PUT).
 
 UNVERIFIED ON REAL HARDWARE — validate before production use:
   1. `save <filename>` semantics: whether VRP accepts the `flash:/`-
-     prefixed form used here (inferred from adjacent evidence, not from a
-     live test of `save` itself), whether it silently repoints "next
-     startup saved-configuration file" (`display startup`) as a side
-     effect, and whether any interactive prompt beyond the [Y/N]
-     confirmation already handled by save_configuration() can appear.
-     CONFIRMED LIVE (2026-07-12, third/production device, different unit
-     than the two lab AR650s this had been exercised against): `save`
-     returned in ~2.5s instead of the usual ~9-11s and never actually
-     created the file — the follow-up SFTP GET failed with a content-free
-     'OSError: [Errno 2] '. run_backup() now calls
-     _verify_backup_file_exists() right after save_configuration() to
-     turn that into a clear error instead of a cryptic SFTP failure, but
-     the underlying prompt-handling gap on this device/VRP build is not
-     otherwise fixed here.
+     prefixed form used here, whether it silently repoints "next startup
+     saved-configuration file" (`display startup`) as a side effect, and
+     whether any interactive prompt beyond the [Y/N] confirmation already
+     handled by save_configuration() can appear. RESOLVED (2026-07-12,
+     third/production device, different unit than the two lab AR650s this
+     had first been exercised against): `save` returned in ~2.5s instead
+     of the usual ~9-11s and never actually created the file — the
+     follow-up SFTP GET failed with a content-free 'OSError: [Errno 2] '.
+     Root-caused live on-console (bisection over several `save
+     flash:/<path>` lengths): VRP's CLI parser hard-rejects the whole
+     command as "Unrecognized command" once the `flash:/<path>` string
+     exceeds MAX_FLASH_PATH_LENGTH (64) — not a prompt-handling gap, a
+     hard length limit. The `flash:/` prefix and `.zip` extension
+     themselves are fine; a long Nautobot device name pushed the
+     generated filename over the limit. _flash_safe_filename() now falls
+     back to a short hash when the full name would exceed it, and
+     run_backup() calls _verify_backup_file_exists() right after
+     save_configuration() as a backstop in case some other, still-unknown
+     rejection reason turns up on yet another device.
   2. Cleanup delete command: cleanup_old_backups() reuses flash.py's
      _delete_file(), whose `delete flash:/<filename>` + [Y/N] handling is
      already exercised by the existing upgrade() flash-cleanup path, but
      has not specifically been exercised against nauto_-prefixed backup
      files on real hardware.
 """
+
+import hashlib
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
@@ -58,6 +65,17 @@ from network_automation.platforms.huawei_vrp.upload import _dedicated_sftp, _mak
 
 BACKUP_PREFIX = "nauto_"
 BACKUP_EXTENSION = ".zip"
+
+# VRP's CLI parser hard-rejects the whole `save <path>` command
+# ("Unrecognized command found at '^' position.") if <path> exceeds a
+# device-imposed length limit — confirmed live via bisection on real
+# hardware (2026-07-12, AR650, VRP sysname
+# "01029595-Krotoski-Przybyszewskiego176-r1", 40 chars): a 64-character
+# "flash:/<file>" path is accepted, 65 characters is rejected outright.
+# Not confirmed whether 64 is universal across VRP builds/models or
+# specific to this one — kept as a named constant so it's easy to revisit
+# if a different limit turns up elsewhere.
+MAX_FLASH_PATH_LENGTH = 64
 
 
 # -------------------------------------------------------
@@ -88,23 +106,47 @@ def cleanup_old_backups(client):
         _delete_file(client, filename)
 
 
+def _flash_safe_filename(name: str) -> str:
+    """
+    Build the on-device backup filename ('nauto_<name>.zip'), falling back
+    to a short, deterministic hash of `name` if the full
+    'flash:/nauto_<name>.zip' path would exceed MAX_FLASH_PATH_LENGTH (see
+    that constant for how the limit was found — long Nautobot device
+    names are what push the generated name over it).
+
+    This name is purely an internal, device-side implementation detail —
+    per this module's platform-naming-isolation note, callers only ever
+    see the caller-supplied logical name via OperationResult.metadata,
+    never this one, so trading readability for a guaranteed-short,
+    collision-resistant name here (only when actually needed) is safe.
+    """
+    filename = f"{BACKUP_PREFIX}{name}{BACKUP_EXTENSION}"
+    if len(f"flash:/{filename}") <= MAX_FLASH_PATH_LENGTH:
+        return filename
+
+    digest = hashlib.md5(name.encode()).hexdigest()[:16]
+    return f"{BACKUP_PREFIX}{digest}{BACKUP_EXTENSION}"
+
+
 def _verify_backup_file_exists(client, *, filename: str):
     """
     Confirm `filename` (bare name, no 'flash:/' prefix) exists on flash
     right after save_configuration() — before attempting the SFTP GET.
 
-    save_configuration(client, filename) (the `save <filename>` form, as
-    opposed to bare `save`) is flagged in this module's docstring as
-    unverified on real hardware: its confirmation-prompt handling was only
-    ever exercised against two lab units. Observed live on a third,
-    different device: `save` returned in ~2.5s (vs. ~9-11s on the lab
-    units) and the file was never actually created, so the next step
-    (SFTP GET) failed with a bare 'OSError: [Errno 2] ' — this device's
-    SFTP server returns SSH_FX_NO_SUCH_FILE with an empty text field, so
-    paramiko's exception carries no useful detail on its own (same empty-
-    text-field pattern as docs/problems/huawei-vrp-sftp-open-failure.md).
-    Failing here instead turns that into a clear, actionable error at the
-    point it actually happened.
+    Added after a live failure (2026-07-12, third device, different unit
+    than the two lab units save_configuration() had first been exercised
+    against): `save` returned in ~2.5s (vs. ~9-11s on the lab units) and
+    the file was never actually created, so the next step (SFTP GET)
+    failed with a bare 'OSError: [Errno 2] ' — this device's SFTP server
+    returns SSH_FX_NO_SUCH_FILE with an empty text field, so paramiko's
+    exception carries no useful detail on its own (same empty-text-field
+    pattern as docs/problems/huawei-vrp-sftp-open-failure.md). That
+    specific failure was root-caused to a VRP command-length limit (see
+    MAX_FLASH_PATH_LENGTH / _flash_safe_filename()) and is now avoided
+    before `save` even runs — this check stays as a backstop in case
+    `save` fails to create the file for some other, still-unknown reason
+    on a future device, turning that into a clear, actionable error
+    instead of a cryptic SFTP failure.
 
     - no connect/disconnect
     - raises RuntimeError if the file is missing
@@ -156,13 +198,14 @@ def run_backup(client, name: str, *, return_result: bool = False, download_dir: 
 
         cleanup_old_backups(client)
 
-        remote_path = f"flash:/{BACKUP_PREFIX}{name}{BACKUP_EXTENSION}"
+        backup_filename = _flash_safe_filename(name)
+        remote_path = f"flash:/{backup_filename}"
         logical_file = f"{name}{BACKUP_EXTENSION}"
 
         client.logger.info("Creating backup '%s'", remote_path)
         save_configuration(client, remote_path)
 
-        _verify_backup_file_exists(client, filename=f"{BACKUP_PREFIX}{name}{BACKUP_EXTENSION}")
+        _verify_backup_file_exists(client, filename=backup_filename)
 
         result.metadata["remote_file"] = logical_file
 

@@ -5,7 +5,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from network_automation.results import OperationResult
-from network_automation.platforms.huawei_vrp.backup import cleanup_old_backups, run_backup
+from network_automation.platforms.huawei_vrp.backup import (
+    cleanup_old_backups,
+    run_backup,
+    _flash_safe_filename,
+    MAX_FLASH_PATH_LENGTH,
+)
 
 
 # -------------------------------------------------------
@@ -235,3 +240,79 @@ Directory of flash:/
 
     # download must never be attempted for a file that doesn't exist
     assert fake_sftp.downloads == []
+
+
+# -------------------------------------------------------
+# _flash_safe_filename
+# -------------------------------------------------------
+
+def test_flash_safe_filename_short_name_unchanged():
+    assert _flash_safe_filename("net-lab-hua-r3-260712_132114") == \
+        "nauto_net-lab-hua-r3-260712_132114.zip"
+
+
+def test_flash_safe_filename_falls_back_to_hash_when_too_long():
+    # Same device name that failed live (2026-07-12): 71-char remote path.
+    long_name = "01029595-Krotoski-Przybyszewskiego176-r1-260712_224107"
+    assert len(f"flash:/nauto_{long_name}.zip") > MAX_FLASH_PATH_LENGTH
+
+    result = _flash_safe_filename(long_name)
+
+    assert len(f"flash:/{result}") <= MAX_FLASH_PATH_LENGTH
+    assert result.startswith("nauto_")
+    assert result.endswith(".zip")
+    assert long_name not in result
+
+
+def test_flash_safe_filename_hash_is_deterministic_and_name_sensitive():
+    assert _flash_safe_filename("a" * 60) == _flash_safe_filename("a" * 60)
+    assert _flash_safe_filename("a" * 60) != _flash_safe_filename("b" * 60)
+
+
+def test_run_backup_uses_hashed_filename_for_long_device_name(monkeypatch, huawei_client, fake_conn, tmp_path):
+    """
+    A long device name (like the one that failed live) must produce a
+    remote path within MAX_FLASH_PATH_LENGTH — verified end-to-end via the
+    same command run_backup() actually sends.
+    """
+    monkeypatch.setattr(huawei_client, "connect", lambda: None)
+    monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.backup.cleanup_old_backups",
+        lambda client: None,
+    )
+
+    long_name = "01029595-Krotoski-Przybyszewskiego176-r1-260712_224107"
+    expected_filename = _flash_safe_filename(long_name)
+
+    fake_sftp = FakeSFTP()
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
+    fake_conn.send_command_timing.side_effect = [
+        "Save the configuration successfully.<Huawei>",
+    ]
+    fake_conn.send_command.side_effect = [f"""\
+Directory of flash:/
+
+  Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
+   17  -rw-          2,305  Jul 01 2026 09:27:55   {expected_filename}
+
+631,960 KB total available (237,728 KB free)
+"""]
+    huawei_client.conn = fake_conn
+
+    result = huawei_client.backup(
+        long_name,
+        return_result=True,
+        download_dir=str(tmp_path),
+    )
+
+    assert result.success is True
+    sent_command = fake_conn.send_command_timing.call_args_list[0].args[0]
+    assert sent_command == f"save flash:/{expected_filename}"
+    assert len(sent_command.removeprefix("save ")) <= MAX_FLASH_PATH_LENGTH
+    # OperationResult metadata still reports the full, un-hashed logical name.
+    assert result.metadata["remote_file"] == f"{long_name}.zip"
+    assert result.metadata["local_path"] == f"{tmp_path}/{long_name}.zip"
