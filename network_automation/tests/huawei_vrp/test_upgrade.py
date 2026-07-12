@@ -280,43 +280,49 @@ def test_save_configuration_does_not_raise_on_normal_yn_prompt(huawei_client, fa
     # Proves save_configuration() does NOT falsely trigger the CLI-error
     # check on ordinary [Y/N] prompt text (no check is applied at all here).
     huawei_client.conn = fake_conn
-    fake_conn.send_command_timing.side_effect = [
-        "Warning: dangerous, continue? [Y/N]:",
-    ]
     fake_conn.send_command.side_effect = [
+        "Warning: dangerous, continue? [Y/N]:",
         "Save the configuration successfully.<Huawei>",
     ]
 
     save_configuration(huawei_client)  # must not raise
 
-    assert fake_conn.send_command_timing.call_count == 1
-    assert fake_conn.send_command.call_count == 1
-    _, kwargs = fake_conn.send_command.call_args
-    assert kwargs["expect_string"] == r"[\]>]"
-    assert kwargs["read_timeout"] == 300
+    fake_conn.send_command_timing.assert_not_called()
+    assert fake_conn.send_command.call_count == 2
+
+    first_kwargs = fake_conn.send_command.call_args_list[0].kwargs
+    assert first_kwargs["expect_string"] == r"(?i)y/n|[\]>]"
+    assert first_kwargs["read_timeout"] == 300
+
+    second_kwargs = fake_conn.send_command.call_args_list[1].kwargs
+    assert second_kwargs["expect_string"] == r"[\]>]"
+    assert second_kwargs["read_timeout"] == 300
 
 
 def test_save_configuration_no_filename_uses_bare_save_command(huawei_client, fake_conn):
     huawei_client.conn = fake_conn
-    fake_conn.send_command_timing.side_effect = [
+    fake_conn.send_command.side_effect = [
         "Save the configuration successfully.<Huawei>",
     ]
 
     save_configuration(huawei_client)
 
-    fake_conn.send_command_timing.assert_called_once_with("save")
+    fake_conn.send_command_timing.assert_not_called()
+    assert fake_conn.send_command.call_count == 1
+    assert fake_conn.send_command.call_args_list[0].args[0] == "save"
 
 
 def test_save_configuration_with_filename_builds_save_filename_command(huawei_client, fake_conn):
     huawei_client.conn = fake_conn
-    fake_conn.send_command_timing.side_effect = [
+    fake_conn.send_command.side_effect = [
         "Save the configuration successfully.<Huawei>",
     ]
 
     save_configuration(huawei_client, "flash:/nauto_daily.zip")
 
-    fake_conn.send_command_timing.assert_called_once_with("save flash:/nauto_daily.zip")
-    fake_conn.send_command.assert_not_called()
+    fake_conn.send_command_timing.assert_not_called()
+    assert fake_conn.send_command.call_count == 1
+    assert fake_conn.send_command.call_args_list[0].args[0] == "save flash:/nauto_daily.zip"
 
 
 # ---------- verify_md5 ----------

@@ -139,17 +139,17 @@ def test_run_backup_returns_result_and_downloads(monkeypatch, huawei_client, fak
         "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
         lambda client: FakeConn(fake_sftp),
     )
-    fake_conn.send_command_timing.side_effect = [
+    fake_conn.send_command.side_effect = [
         "Save the configuration successfully.<Huawei>",
-    ]
-    fake_conn.send_command.side_effect = ["""\
+        """\
 Directory of flash:/
 
   Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
    17  -rw-          2,305  Jul 01 2026 09:27:55   nauto_daily.zip
 
 631,960 KB total available (237,728 KB free)
-"""]
+""",
+    ]
     huawei_client.conn = fake_conn
 
     result = huawei_client.backup(
@@ -166,7 +166,13 @@ Directory of flash:/
     assert result.metadata["remote_file"] == "daily.zip"
     assert result.metadata["local_path"] == f"{tmp_path}/daily.zip"
 
-    fake_conn.send_command_timing.assert_any_call("save flash:/nauto_daily.zip")
+    fake_conn.send_command.assert_any_call(
+        "save flash:/nauto_daily.zip",
+        expect_string=r"(?i)y/n|[\]>]",
+        read_timeout=300,
+        strip_prompt=False,
+        strip_command=False,
+    )
 
     assert fake_sftp.downloads == [
         ("flash:/nauto_daily.zip", f"{tmp_path}/daily.zip")
@@ -186,17 +192,17 @@ def test_run_backup_return_result_false_returns_none(monkeypatch, huawei_client,
         "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
         lambda client: FakeConn(fake_sftp),
     )
-    fake_conn.send_command_timing.side_effect = [
+    fake_conn.send_command.side_effect = [
         "Save the configuration successfully.<Huawei>",
-    ]
-    fake_conn.send_command.side_effect = ["""\
+        """\
 Directory of flash:/
 
   Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
    17  -rw-          2,305  Jul 01 2026 09:27:55   nauto_daily.zip
 
 631,960 KB total available (237,728 KB free)
-"""]
+""",
+    ]
     huawei_client.conn = fake_conn
 
     outcome = huawei_client.backup("daily", download_dir=str(tmp_path))
@@ -224,18 +230,18 @@ def test_run_backup_raises_when_save_did_not_create_file(monkeypatch, huawei_cli
         "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
         lambda client: FakeConn(fake_sftp),
     )
-    fake_conn.send_command_timing.side_effect = [
-        "Save the configuration successfully.<Huawei>",
-    ]
     # 'dir' listing does NOT contain nauto_daily.zip — save didn't create it.
-    fake_conn.send_command.side_effect = ["""\
+    fake_conn.send_command.side_effect = [
+        "Save the configuration successfully.<Huawei>",
+        """\
 Directory of flash:/
 
   Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
    17  -rw-          2,305  Jul 01 2026 09:27:55   vrpcfg.zip
 
 631,960 KB total available (237,728 KB free)
-"""]
+""",
+    ]
     huawei_client.conn = fake_conn
 
     with pytest.raises(RuntimeError, match="was not found on the device after 'save'"):
@@ -293,17 +299,17 @@ def test_run_backup_uses_hashed_filename_for_long_device_name(monkeypatch, huawe
         "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
         lambda client: FakeConn(fake_sftp),
     )
-    fake_conn.send_command_timing.side_effect = [
+    fake_conn.send_command.side_effect = [
         "Save the configuration successfully.<Huawei>",
-    ]
-    fake_conn.send_command.side_effect = [f"""\
+        f"""\
 Directory of flash:/
 
   Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
    17  -rw-          2,305  Jul 01 2026 09:27:55   {expected_filename}
 
 631,960 KB total available (237,728 KB free)
-"""]
+""",
+    ]
     huawei_client.conn = fake_conn
 
     result = huawei_client.backup(
@@ -313,7 +319,7 @@ Directory of flash:/
     )
 
     assert result.success is True
-    sent_command = fake_conn.send_command_timing.call_args_list[0].args[0]
+    sent_command = fake_conn.send_command.call_args_list[0].args[0]
     assert sent_command == f"save flash:/{expected_filename}"
     assert len(sent_command.removeprefix("save ")) <= MAX_FLASH_PATH_LENGTH
     # OperationResult metadata still reports the full, un-hashed logical name.

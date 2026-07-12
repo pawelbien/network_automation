@@ -233,16 +233,38 @@ def save_configuration(client, filename: str | None = None):
     the first place, so nothing is left dangling for the next command to
     misread.
 
+    The *initial* `save`/`save <filename>` send used send_command_timing()
+    (the same blind idle-time heuristic) until a live failure (2026-07-12,
+    a fourth device): the response came back completely empty — the
+    device's "(y/n)" prompt hadn't arrived before send_command_timing()'s
+    idle window closed, so this function saw no "y/n" in the (empty)
+    output, assumed no confirmation was needed, and returned immediately
+    — leaving the device sitting at an unanswered confirmation prompt.
+    Every subsequent command then landed on that stuck prompt instead of a
+    real command line, failing repeatedly with no way to self-resolve
+    (confirmed live: 3 retries of the next command over ~35s, all
+    identical failures) since nothing had actually gone wrong that a
+    retry could wait out. Now uses the same send_command()+expect_string
+    approach as reboot() for this same reason — see that method's
+    docstring — for the initial send too, not just the "y" confirmation.
+
     - no connect/disconnect
     """
     command = f"save {filename}" if filename else "save"
 
-    # send_command_timing output here is an interactive [Y/N] confirmation
-    # prompt, not command output to validate — the CLI-error check does not
-    # apply to prompt-handling loops.
-    debug_log(client, "send_command_timing: %s", command)
-    output = client.conn.send_command_timing(command)
-    debug_log(client, "send_command_timing response: %s", output)
+    # This output is an interactive [Y/N] confirmation prompt (or, if none
+    # is asked, the command prompt reappearing) — not command output to
+    # validate, so the CLI-error check does not apply to this or the
+    # confirmation loop below.
+    debug_log(client, "send_command: %s", command)
+    output = client.conn.send_command(
+        command,
+        expect_string=r"(?i)y/n|[\]>]",
+        read_timeout=300,
+        strip_prompt=False,
+        strip_command=False,
+    )
+    debug_log(client, "send_command response: %s", output)
 
     for _ in range(3):
         if "y/n" not in output.lower():
