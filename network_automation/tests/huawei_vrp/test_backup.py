@@ -134,6 +134,14 @@ def test_run_backup_returns_result_and_downloads(monkeypatch, huawei_client, fak
     fake_conn.send_command_timing.side_effect = [
         "Save the configuration successfully.<Huawei>",
     ]
+    fake_conn.send_command.side_effect = ["""\
+Directory of flash:/
+
+  Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
+   17  -rw-          2,305  Jul 01 2026 09:27:55   nauto_daily.zip
+
+631,960 KB total available (237,728 KB free)
+"""]
     huawei_client.conn = fake_conn
 
     result = huawei_client.backup(
@@ -173,8 +181,57 @@ def test_run_backup_return_result_false_returns_none(monkeypatch, huawei_client,
     fake_conn.send_command_timing.side_effect = [
         "Save the configuration successfully.<Huawei>",
     ]
+    fake_conn.send_command.side_effect = ["""\
+Directory of flash:/
+
+  Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
+   17  -rw-          2,305  Jul 01 2026 09:27:55   nauto_daily.zip
+
+631,960 KB total available (237,728 KB free)
+"""]
     huawei_client.conn = fake_conn
 
     outcome = huawei_client.backup("daily", download_dir=str(tmp_path))
 
     assert outcome is None
+
+
+def test_run_backup_raises_when_save_did_not_create_file(monkeypatch, huawei_client, fake_conn, tmp_path):
+    """
+    save_configuration()'s [Y/N] handling is unverified on hardware other
+    than the two lab units it was tested against — if 'save <filename>'
+    doesn't actually create the file (observed live on a third device),
+    run_backup() must fail with a clear RuntimeError right after save,
+    not a bare/cryptic SFTP error from the download attempt.
+    """
+    monkeypatch.setattr(huawei_client, "connect", lambda: None)
+    monkeypatch.setattr(huawei_client, "disconnect", lambda: None)
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.backup.cleanup_old_backups",
+        lambda client: None,
+    )
+
+    fake_sftp = FakeSFTP()
+    monkeypatch.setattr(
+        "network_automation.platforms.huawei_vrp.upload._connect_dedicated",
+        lambda client: FakeConn(fake_sftp),
+    )
+    fake_conn.send_command_timing.side_effect = [
+        "Save the configuration successfully.<Huawei>",
+    ]
+    # 'dir' listing does NOT contain nauto_daily.zip — save didn't create it.
+    fake_conn.send_command.side_effect = ["""\
+Directory of flash:/
+
+  Idx  Attr     Size(Byte)  Date        Time(LMT)  FileName
+   17  -rw-          2,305  Jul 01 2026 09:27:55   vrpcfg.zip
+
+631,960 KB total available (237,728 KB free)
+"""]
+    huawei_client.conn = fake_conn
+
+    with pytest.raises(RuntimeError, match="was not found on the device after 'save'"):
+        huawei_client.backup("daily", download_dir=str(tmp_path))
+
+    # download must never be attempted for a file that doesn't exist
+    assert fake_sftp.downloads == []
