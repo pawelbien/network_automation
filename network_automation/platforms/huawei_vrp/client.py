@@ -269,7 +269,11 @@ class HuaweiVRP(BaseClient):
         not a target. The device dropping the connection entirely during
         this is also treated as the expected success case, not an error.
         """
-        self.logger.info("Rebooting device...")
+        self.logger.info(
+            "Rebooting device... (typically several minutes; will wait up "
+            "to %ds for it to reconnect)",
+            self.reconnect_timeout,
+        )
 
         # send_command output here is an interactive [y/n] confirmation
         # prompt, not command output to validate — the CLI-error check does
