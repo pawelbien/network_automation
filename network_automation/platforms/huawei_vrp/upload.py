@@ -101,16 +101,27 @@ def _dedicated_sftp(client, *, timeout: float | None = None):
 def _keep_cli_alive(client, stop_event):
     """
     Send a harmless newline to client.conn every
-    _CLI_KEEPALIVE_INTERVAL_SECONDS until stop_event is set.
+    _CLI_KEEPALIVE_INTERVAL_SECONDS until stop_event is set, logging an
+    INFO heartbeat on each successful ping — matching the
+    wait_for_reconnect() heartbeat pattern (huawei_vrp and
+    mikrotik_routeros clients) so a long transfer keeps producing visible
+    job-log activity (and the Job-log DB writes that go with it) instead
+    of going silent for the whole transfer, which otherwise leaves the
+    job's DB connection idle long enough to go stale.
 
     Best-effort: if client.conn is already dead, gives up silently — the
     real error surfaces wherever client.conn is next actually used for
     something that matters (e.g. verify_remote_file's 'dir').
     """
+    start = time.monotonic()
     while not stop_event.wait(_CLI_KEEPALIVE_INTERVAL_SECONDS):
+        elapsed = int(time.monotonic() - start)
         try:
-            debug_log(client, "CLI keepalive: sending no-op to client.conn")
             client.conn.send_command_timing("\n", read_timeout=5)
+            client.logger.info(
+                "Upload still in progress (%ds elapsed) — CLI session alive",
+                elapsed,
+            )
         except Exception as exc:
             debug_log(client, "CLI keepalive: client.conn unusable, stopping (%s)", exc)
             return
