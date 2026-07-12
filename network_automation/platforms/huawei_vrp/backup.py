@@ -55,6 +55,9 @@ UNVERIFIED ON REAL HARDWARE — validate before production use:
 """
 
 import hashlib
+import time
+
+from netmiko.exceptions import ReadTimeout
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
@@ -76,6 +79,18 @@ BACKUP_EXTENSION = ".zip"
 # specific to this one — kept as a named constant so it's easy to revisit
 # if a different limit turns up elsewhere.
 MAX_FLASH_PATH_LENGTH = 64
+
+# Retries for the flash directory read inside _verify_backup_file_exists()
+# (the check that runs right after `save`), on a Netmiko ReadTimeout only.
+# Confirmed live (2026-07-12, a fourth device): even after
+# save_configuration()'s explicit prompt wait returns, the device can
+# still be finishing its own asynchronous "please wait" tail from `save`
+# and briefly not respond to the very next command — netmiko's internal
+# command-echo check (a fixed ~10s sub-timeout, independent of the
+# read_timeout we pass) times out with "Pattern not detected: 'dir' in
+# output" before the device is actually ready again.
+_FLASH_INFO_RETRIES = 3
+_FLASH_INFO_RETRY_DELAY_SECONDS = 2
 
 
 # -------------------------------------------------------
@@ -148,10 +163,44 @@ def _verify_backup_file_exists(client, *, filename: str):
     on a future device, turning that into a clear, actionable error
     instead of a cryptic SFTP failure.
 
+    Retries the flash directory read (see _FLASH_INFO_RETRIES) on a
+    Netmiko ReadTimeout only: observed live (2026-07-12, a fourth device)
+    that the device can still be settling from `save`'s own asynchronous
+    tail right when this runs, briefly failing netmiko's command-echo
+    check for the very next command with "Pattern not detected: 'dir' in
+    output" — a different failure mode than the file genuinely missing,
+    and one a short retry resolves without masking a real absence (if
+    `save` truly never created the file, no number of retries changes
+    that).
+
     - no connect/disconnect
-    - raises RuntimeError if the file is missing
+    - raises RuntimeError if the file is missing, or if the flash
+      directory listing keeps timing out after all retries
     """
-    flash_info = get_flash_info(client)
+    last_exc = None
+    flash_info = None
+
+    for attempt in range(1, _FLASH_INFO_RETRIES + 1):
+        try:
+            flash_info = get_flash_info(client)
+            break
+        except ReadTimeout as exc:
+            last_exc = exc
+            debug_log(
+                client,
+                "get_flash_info() attempt %d/%d timed out (device likely "
+                "still settling from 'save'): %s",
+                attempt, _FLASH_INFO_RETRIES, exc,
+            )
+            if attempt < _FLASH_INFO_RETRIES:
+                time.sleep(_FLASH_INFO_RETRY_DELAY_SECONDS)
+    else:
+        raise RuntimeError(
+            f"Could not read the flash directory listing after 'save' "
+            f"({_FLASH_INFO_RETRIES} attempts, device may still be busy "
+            f"saving): {last_exc}"
+        ) from last_exc
+
     exists = any(
         not f["is_dir"] and f["name"] == filename
         for f in flash_info["files"]

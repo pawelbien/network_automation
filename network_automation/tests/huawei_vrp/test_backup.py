@@ -3,13 +3,16 @@
 from unittest.mock import MagicMock
 
 import pytest
+from netmiko.exceptions import ReadTimeout
 
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.backup import (
     cleanup_old_backups,
     run_backup,
     _flash_safe_filename,
+    _verify_backup_file_exists,
     MAX_FLASH_PATH_LENGTH,
+    _FLASH_INFO_RETRIES,
 )
 
 
@@ -316,3 +319,37 @@ Directory of flash:/
     # OperationResult metadata still reports the full, un-hashed logical name.
     assert result.metadata["remote_file"] == f"{long_name}.zip"
     assert result.metadata["local_path"] == f"{tmp_path}/{long_name}.zip"
+
+
+# -------------------------------------------------------
+# _verify_backup_file_exists: ReadTimeout retry
+# -------------------------------------------------------
+
+def test_verify_backup_file_exists_retries_on_read_timeout_then_succeeds(mocker, huawei_client):
+    mock_sleep = mocker.patch("network_automation.platforms.huawei_vrp.backup.time.sleep")
+    mock_get_flash_info = mocker.patch(
+        "network_automation.platforms.huawei_vrp.backup.get_flash_info",
+        side_effect=[
+            ReadTimeout("Pattern not detected: 'dir' in output."),
+            {"files": [{"name": "nauto_daily.zip", "size": 2305, "is_dir": False}]},
+        ],
+    )
+
+    _verify_backup_file_exists(huawei_client, filename="nauto_daily.zip")
+
+    assert mock_get_flash_info.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+def test_verify_backup_file_exists_raises_after_exhausting_read_timeout_retries(mocker, huawei_client):
+    mock_sleep = mocker.patch("network_automation.platforms.huawei_vrp.backup.time.sleep")
+    mock_get_flash_info = mocker.patch(
+        "network_automation.platforms.huawei_vrp.backup.get_flash_info",
+        side_effect=ReadTimeout("Pattern not detected: 'dir' in output."),
+    )
+
+    with pytest.raises(RuntimeError, match="Could not read the flash directory listing"):
+        _verify_backup_file_exists(huawei_client, filename="nauto_daily.zip")
+
+    assert mock_get_flash_info.call_count == _FLASH_INFO_RETRIES
+    assert mock_sleep.call_count == _FLASH_INFO_RETRIES - 1
