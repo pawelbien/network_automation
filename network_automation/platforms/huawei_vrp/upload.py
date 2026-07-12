@@ -201,6 +201,7 @@ def upload_files(
                 callback=_make_progress_callback(client),
             )
 
+            client.logger.info("Upload completed: %s → %s", path, remote_path)
             debug_log(client, "sftp.put finished: %s -> %s", path, remote_path)
 
 
@@ -302,6 +303,10 @@ def upload_with_retry(
                         str(path),
                         remote_path,
                         callback=_make_progress_callback(client),
+                    )
+                    client.logger.info(
+                        "Upload completed: %s → %s (attempt %d/%d)",
+                        path, remote_path, attempt, retries,
                     )
                     debug_log(
                         client,

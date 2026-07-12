@@ -58,6 +58,11 @@ def configure_next_startup(client, filename: str):
     - no connect/disconnect
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
+    client.logger.info(
+        "Configuring next-boot startup image: flash:/%s (device "
+        "re-verifies the whole package, can take a while)...",
+        filename,
+    )
     command = f"startup system-software flash:/{filename}"
     debug_log(client, "send_command: %s", command)
     ack = client.conn.send_command(command, read_timeout=300)
@@ -78,6 +83,8 @@ def configure_next_startup(client, filename: str):
             f"startup image to end with '{filename}', got {next_image!r}"
         )
 
+    client.logger.info("Next-boot startup image set to flash:/%s", filename)
+
 
 def configure_next_startup_patch(client, filename: str):
     """
@@ -89,6 +96,11 @@ def configure_next_startup_patch(client, filename: str):
     - no connect/disconnect
     - raises RuntimeError if `display startup` doesn't reflect the change
     """
+    client.logger.info(
+        "Configuring next-boot startup patch: flash:/%s (device "
+        "re-verifies the package, can take a while)...",
+        filename,
+    )
     command = f"startup patch flash:/{filename}"
     debug_log(client, "send_command: %s", command)
     ack = client.conn.send_command(command, read_timeout=300)
@@ -109,6 +121,8 @@ def configure_next_startup_patch(client, filename: str):
             f"startup patch to end with '{filename}', got {next_patch!r}"
         )
 
+    client.logger.info("Next-boot startup patch set to flash:/%s", filename)
+
 
 def verify_md5(client, path: Path):
     """
@@ -121,6 +135,11 @@ def verify_md5(client, path: Path):
     - raises RuntimeError on mismatch — MD5 verification is mandatory for
       every uploaded file
     """
+    client.logger.info(
+        "Verifying MD5 checksum for %s on-device (can take a while for "
+        "large firmware files)...",
+        path.name,
+    )
     expected_md5 = compute_local_md5(path)
     actual_md5 = get_file_md5(client, path.name)
 
@@ -130,6 +149,7 @@ def verify_md5(client, path: Path):
             f"{expected_md5}, got {actual_md5}"
         )
 
+    client.logger.info("MD5 verified for %s", path.name)
     return {"expected_md5": expected_md5, "actual_md5": actual_md5, "match": True}
 
 
