@@ -30,8 +30,10 @@ class FakeSFTP:
     def normalize(self, path):
         return "/"
 
-    def get(self, remote, local):
+    def get(self, remote, local, callback=None):
         self.downloads.append((remote, local))
+        if callback is not None:
+            callback(1, 1)
 
     def close(self):
         pass

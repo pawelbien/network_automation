@@ -2,7 +2,6 @@
 
 import hashlib
 import os
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -16,12 +15,12 @@ from network_automation.platforms.huawei_vrp.info import get_flash_info
 # (upload_timeout) are exposed on HuaweiVRP.
 _RETRY_DELAY_SECONDS = 1
 
-# How often to nudge client.conn's interactive CLI session while a long
-# SFTP transfer runs on the separate dedicated connection. Well under
-# this device's console idle-timeout (observed to fire during a real
-# ~15-minute firmware transfer) — an SSH-transport-level keepalive
-# (client.device's keepalive=30) does NOT reset it, since it never
-# touches the CLI application layer.
+# How often, at most, the sftp.put() progress callback (see
+# _make_progress_callback()) is allowed to log/ping while a long transfer
+# runs. Well under this device's console idle-timeout (observed to fire
+# during a real ~15-minute firmware transfer) — an SSH-transport-level
+# keepalive (client.device's keepalive=30) does NOT reset it, since it
+# never touches the CLI application layer.
 _CLI_KEEPALIVE_INTERVAL_SECONDS = 60
 
 
@@ -98,56 +97,51 @@ def _dedicated_sftp(client, *, timeout: float | None = None):
         debug_log(client, "dedicated SFTP connection closed")
 
 
-def _keep_cli_alive(client, stop_event):
+def _make_progress_callback(client):
     """
-    Send a harmless newline to client.conn every
-    _CLI_KEEPALIVE_INTERVAL_SECONDS until stop_event is set, logging an
-    INFO heartbeat on each successful ping — matching the
-    wait_for_reconnect() heartbeat pattern (huawei_vrp and
-    mikrotik_routeros clients) so a long transfer keeps producing visible
-    job-log activity (and the Job-log DB writes that go with it) instead
-    of going silent for the whole transfer, which otherwise leaves the
-    job's DB connection idle long enough to go stale.
+    Build a paramiko sftp.put() progress callback: paramiko invokes it
+    synchronously, on the same thread that called put(), on every chunk
+    (tens of times per second for a large file) — throttled here to at
+    most once every _CLI_KEEPALIVE_INTERVAL_SECONDS.
 
-    Best-effort: if client.conn is already dead, gives up silently — the
-    real error surfaces wherever client.conn is next actually used for
-    something that matters (e.g. verify_remote_file's 'dir').
+    Deliberately NOT a background thread (previous implementation): a
+    prior version ran this on a separate threading.Thread, and its
+    client.logger.info() calls never showed up in the Nautobot job log —
+    Nautobot's Job.logger appears to be scoped to whichever thread
+    actually runs Job.run() (Celery's task thread), so log calls from an
+    independently spawned thread are silently lost. Running on put()'s
+    own calling thread (the same one running Job.run()) avoids that
+    entirely, as a side effect of using paramiko's own progress hook
+    instead of polling from the side.
+
+    Each call also nudges client.conn's interactive CLI session so its
+    console idle-timeout doesn't fire while sftp.put() blocks this thread
+    for minutes at a time — best-effort: if client.conn is already dead,
+    logged at DEBUG only and swallowed, since the real error surfaces
+    wherever client.conn is next actually used for something that matters
+    (e.g. verify_remote_file's 'dir').
     """
-    start = time.monotonic()
-    while not stop_event.wait(_CLI_KEEPALIVE_INTERVAL_SECONDS):
-        elapsed = int(time.monotonic() - start)
+    state = {"last": time.monotonic(), "start": time.monotonic()}
+
+    def _callback(bytes_transferred, total_bytes):
+        now = time.monotonic()
+        if now - state["last"] < _CLI_KEEPALIVE_INTERVAL_SECONDS:
+            return
+        state["last"] = now
+
+        elapsed = int(now - state["start"])
+        pct = (bytes_transferred / total_bytes * 100) if total_bytes else 0.0
+        client.logger.info(
+            "Upload progress: %.0f%% (%d/%d bytes, %ds elapsed)",
+            pct, bytes_transferred, total_bytes, elapsed,
+        )
+
         try:
             client.conn.send_command_timing("\n", read_timeout=5)
-            client.logger.info(
-                "Upload still in progress (%ds elapsed) — CLI session alive",
-                elapsed,
-            )
         except Exception as exc:
-            debug_log(client, "CLI keepalive: client.conn unusable, stopping (%s)", exc)
-            return
+            debug_log(client, "CLI keepalive: client.conn unusable (%s)", exc)
 
-
-@contextmanager
-def _keep_cli_alive_during(client):
-    """
-    Run _keep_cli_alive() in a background thread for the lifetime of this
-    context, so client.conn's interactive CLI session doesn't hit this
-    device's console idle-timeout while a long SFTP transfer runs on the
-    separate dedicated connection (see _dedicated_sftp()). Always fully
-    stopped and joined before the context exits, so nothing is still
-    touching client.conn concurrently once callers resume using it (e.g.
-    verify_remote_file() right after upload_with_retry()'s transfer).
-    """
-    stop_event = threading.Event()
-    thread = threading.Thread(
-        target=_keep_cli_alive, args=(client, stop_event), daemon=True,
-    )
-    thread.start()
-    try:
-        yield
-    finally:
-        stop_event.set()
-        thread.join(timeout=_CLI_KEEPALIVE_INTERVAL_SECONDS)
+    return _callback
 
 
 def compute_local_md5(path: Path) -> str:
@@ -178,15 +172,16 @@ def upload_files(
     Opens its own dedicated SSH connection for SFTP (see
     _dedicated_sftp()) rather than reusing client.conn's interactive CLI
     session — that connection/channel is untouched by this function,
-    apart from a background no-op keepalive while the transfer runs (see
-    _keep_cli_alive_during()).
+    apart from a periodic no-op keepalive+progress-log driven by
+    sftp.put()'s own progress callback while the transfer runs (see
+    _make_progress_callback()).
 
     - no connect/disconnect (of client.conn — this opens and closes its
       own separate SFTP connection internally, every call)
     - raises exceptions on failure
     """
 
-    with _keep_cli_alive_during(client), _dedicated_sftp(client) as sftp:
+    with _dedicated_sftp(client) as sftp:
         for path in files:
             if not path.exists():
                 raise FileNotFoundError(path)
@@ -203,6 +198,7 @@ def upload_files(
             sftp.put(
                 str(path),
                 remote_path,
+                callback=_make_progress_callback(client),
             )
 
             debug_log(client, "sftp.put finished: %s -> %s", path, remote_path)
@@ -271,11 +267,12 @@ def upload_with_retry(
     attempts will make a nonexistent local file appear.
 
     client.conn (the interactive CLI session used by the post-transfer
-    verify_remote_file() call below) gets a background no-op keepalive
-    for the duration of the transfer — see _keep_cli_alive_during() —
-    since this device's console idle-timeout can otherwise kill it
-    during a long transfer, which would fail verification (and trigger a
-    wasted retry-from-scratch) even though the transfer itself succeeded.
+    verify_remote_file() call below) gets a periodic no-op keepalive for
+    the duration of the transfer — driven by sftp.put()'s own progress
+    callback, see _make_progress_callback() — since this device's console
+    idle-timeout can otherwise kill it during a long transfer, which
+    would fail verification (and trigger a wasted retry-from-scratch)
+    even though the transfer itself succeeded.
 
     - no connect/disconnect
     - raises RuntimeError after exhausting all retries, chained to the last
@@ -286,7 +283,7 @@ def upload_with_retry(
 
     for attempt in range(1, retries + 1):
         try:
-            with _keep_cli_alive_during(client), _dedicated_sftp(client, timeout=timeout) as sftp:
+            with _dedicated_sftp(client, timeout=timeout) as sftp:
                 for path in files:
                     if not path.exists():
                         raise FileNotFoundError(path)
@@ -301,7 +298,11 @@ def upload_with_retry(
                         "upload attempt %d/%d starting: %s -> %s",
                         attempt, retries, path, remote_path,
                     )
-                    sftp.put(str(path), remote_path)
+                    sftp.put(
+                        str(path),
+                        remote_path,
+                        callback=_make_progress_callback(client),
+                    )
                     debug_log(
                         client,
                         "upload attempt %d/%d finished: %s -> %s",

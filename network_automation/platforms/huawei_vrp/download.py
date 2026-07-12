@@ -3,7 +3,7 @@
 from pathlib import Path
 from network_automation.results import OperationResult
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
-from network_automation.platforms.huawei_vrp.upload import _dedicated_sftp, _keep_cli_alive_during
+from network_automation.platforms.huawei_vrp.upload import _dedicated_sftp, _make_progress_callback
 
 
 # -------------------------------------------------------
@@ -20,12 +20,14 @@ def download_files(
     Download files from device via SFTP.
 
     Uses a dedicated, non-interactive-shell SFTP connection (see
-    upload.py's _dedicated_sftp()/_keep_cli_alive_during()), not
-    client.conn.remote_conn_pre — sharing the SFTP channel with
-    client.conn's interactive Netmiko shell session hangs indefinitely on
-    this hardware (docs/problems/huawei-vrp-sftp-open-failure.md's
-    shared-transport-hang pitfall; confirmed live 2026-07-08 for GET via
-    backup.py, same fix applied here).
+    upload.py's _dedicated_sftp()), not client.conn.remote_conn_pre —
+    sharing the SFTP channel with client.conn's interactive Netmiko shell
+    session hangs indefinitely on this hardware
+    (docs/problems/huawei-vrp-sftp-open-failure.md's shared-transport-hang
+    pitfall; confirmed live 2026-07-08 for GET via backup.py, same fix
+    applied here). client.conn gets a periodic no-op keepalive+progress-log
+    for the duration of the transfer, driven by sftp.get()'s own progress
+    callback — see upload.py's _make_progress_callback().
 
     - no connect/disconnect (of client.conn — this opens and closes its
       own separate SFTP connection internally, every call)
@@ -35,7 +37,7 @@ def download_files(
     local_dir = Path(local_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    with _keep_cli_alive_during(client), _dedicated_sftp(client) as sftp:
+    with _dedicated_sftp(client) as sftp:
         for filename in files:
             local_path = local_dir / filename
 
@@ -49,6 +51,7 @@ def download_files(
             sftp.get(
                 filename,
                 str(local_path),
+                callback=_make_progress_callback(client),
             )
 
             debug_log(client, "sftp.get finished: %s -> %s", filename, local_path)

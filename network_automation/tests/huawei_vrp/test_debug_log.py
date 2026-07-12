@@ -179,10 +179,12 @@ class _FakeSFTP:
     def normalize(self, path):
         return "/"
 
-    def put(self, local, remote):
+    def put(self, local, remote, callback=None):
         self._put_calls += 1
         if self._put_calls <= self._fail_first_n:
             raise OSError("simulated transfer failure")
+        if callback is not None:
+            callback(1, 1)
 
     def close(self):
         pass
