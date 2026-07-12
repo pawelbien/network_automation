@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from network_automation.platforms.huawei_vrp.client import HuaweiVRP
+from network_automation.platforms.huawei_vrp.client import HuaweiVRP, _safe_log_info
 
 
 def test_upload_timeout_and_retries_defaults(huawei_client):
@@ -104,3 +104,73 @@ def test_reboot_tolerates_connection_dying_after_confirmation(huawei_client):
     huawei_client.conn = fake_conn
 
     huawei_client.reboot()  # must not raise
+
+
+# ---------- _safe_log_info / wait_for_reconnect resilience ----------
+
+def test_safe_log_info_swallows_logger_exception():
+    # Nautobot's Job logger runs a DB query on every emit() with no
+    # try/except of its own (confirmed live, 2026-07-12): a transient
+    # OperationalError there must never propagate out of a status/
+    # heartbeat log call.
+    client = MagicMock()
+    client.logger.info.side_effect = RuntimeError(
+        "Lost connection to MySQL server during query"
+    )
+
+    _safe_log_info(client, "Still waiting for %s to reconnect (%ds elapsed)", "1.1.1.1", 65)  # must not raise
+
+    client.logger.info.assert_called_once_with(
+        "Still waiting for %s to reconnect (%ds elapsed)", "1.1.1.1", 65,
+    )
+
+
+def test_safe_log_info_calls_through_on_success():
+    client = MagicMock()
+
+    _safe_log_info(client, "Device fully online (SSH + CLI ready).")
+
+    client.logger.info.assert_called_once_with("Device fully online (SSH + CLI ready).")
+
+
+def test_wait_for_reconnect_survives_logger_failure_during_heartbeat(mocker, huawei_client):
+    """
+    A logger.info() failure on the 60s heartbeat (e.g. a transient DB
+    hiccup in Nautobot's Job logger) must not abort wait_for_reconnect()
+    — the device reconnecting is what matters, not whether the heartbeat
+    got logged. Reproduces the live incident (2026-07-12): first attempt
+    fails (device not up yet) -> heartbeat fires and its logger call
+    raises -> second attempt succeeds.
+    """
+    huawei_client.reconnect_timeout = 300
+    huawei_client.reconnect_delay = 1
+
+    time_values = iter([1000.0, 1000.0, 1065.0, 1065.0])
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.client.time.time",
+        side_effect=lambda: next(time_values),
+    )
+    mocker.patch("network_automation.platforms.huawei_vrp.client.time.sleep")
+
+    not_ready_conn = MagicMock()
+    not_ready_conn.send_command.side_effect = Exception("device not ready yet")
+    online_conn = MagicMock()
+    online_conn.send_command.return_value = "VRP software, Version 8.212"
+
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.client.ConnectHandler",
+        side_effect=[not_ready_conn, online_conn],
+    )
+
+    huawei_client.logger = MagicMock()
+    huawei_client.logger.info.side_effect = [
+        None,  # "Waiting for %s to reconnect..."
+        RuntimeError("Lost connection to MySQL server during query"),  # heartbeat
+        None,  # "Device fully online (SSH + CLI ready)."
+    ]
+
+    result = huawei_client.wait_for_reconnect()  # must not raise
+
+    assert result is online_conn
+    assert huawei_client.conn is online_conn
+    assert huawei_client.logger.info.call_count == 3

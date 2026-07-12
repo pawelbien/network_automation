@@ -17,6 +17,30 @@ from network_automation.platforms.huawei_vrp.upgrade import upgrade as upgrade_h
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
 
 
+def _safe_log_info(client, msg, *args):
+    """
+    Best-effort self.logger.info(): swallows any exception the logger
+    itself raises.
+
+    Nautobot's Job logger (nautobot/core/celery/log.py's logging.Handler)
+    runs a DB query (JobResult.objects.get(id=record.task_id)) on every
+    single call, with no try/except of its own — confirmed live
+    (2026-07-12): a transient 'django.db.utils.OperationalError: (2013,
+    Lost connection to MySQL server during query)' there took down an
+    otherwise-successful upgrade (the device had already rebooted and was
+    reconnecting fine) with a misleading TypeError several layers up in
+    Celery's own exception handling — and no matching JobLogEntry at all,
+    since the failure happened inside the very logger call that would
+    have written one. Status/heartbeat logging is an observability
+    concern and must never be able to abort an operation that is itself
+    succeeding — used by wait_for_reconnect() for exactly that reason.
+    """
+    try:
+        client.logger.info(msg, *args)
+    except Exception:
+        pass
+
+
 class HuaweiVRP(BaseClient):
     """
     Platform client for Huawei VRP devices (Netmiko driver "huawei").
@@ -312,9 +336,16 @@ class HuaweiVRP(BaseClient):
         self.conn = None
 
     def wait_for_reconnect(self):
-        """Wait until the device is reachable via SSH and CLI is ready."""
+        """
+        Wait until the device is reachable via SSH and CLI is ready.
 
-        self.logger.info("Waiting for %s to reconnect...", self.host)
+        All status/heartbeat logging here goes through _safe_log_info()
+        (best-effort, never raises) — see that function's docstring: a
+        logger failure must never abort a reconnect wait that is itself
+        succeeding.
+        """
+
+        _safe_log_info(self, "Waiting for %s to reconnect...", self.host)
 
         start = time.time()
         last_log = start
@@ -349,9 +380,7 @@ class HuaweiVRP(BaseClient):
                 debug_log(self, "send_command response: %s", out)
 
                 if "vrp" in out.lower():
-                    self.logger.info(
-                        "Device fully online (SSH + CLI ready)."
-                    )
+                    _safe_log_info(self, "Device fully online (SSH + CLI ready).")
                     self.conn = conn
                     return conn   # SUCCESS → do NOT disconnect
 
@@ -369,7 +398,8 @@ class HuaweiVRP(BaseClient):
             # ---- heartbeat INFO every 60s ----
             now = time.time()
             if now - last_log > 60:
-                self.logger.info(
+                _safe_log_info(
+                    self,
                     "Still waiting for %s to reconnect "
                     "(%ds elapsed)",
                     self.host,
