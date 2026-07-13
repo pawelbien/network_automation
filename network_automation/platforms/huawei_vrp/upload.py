@@ -120,6 +120,12 @@ def _make_progress_callback(client):
     logged at DEBUG only and swallowed, since the real error surfaces
     wherever client.conn is next actually used for something that matters
     (e.g. verify_remote_file's 'dir').
+
+    The progress log itself goes through client._safe_log_info()
+    (BaseClient) rather than client.logger.info() directly — same
+    identical risk as wait_for_reconnect()'s heartbeat: an upload that's
+    actually succeeding must never be aborted by a transient failure in
+    the logger call itself.
     """
     state = {"last": time.monotonic(), "start": time.monotonic()}
 
@@ -131,7 +137,7 @@ def _make_progress_callback(client):
 
         elapsed = int(now - state["start"])
         pct = (bytes_transferred / total_bytes * 100) if total_bytes else 0.0
-        client.logger.info(
+        client._safe_log_info(
             "Upload progress: %.0f%% (%d/%d bytes, %ds elapsed)",
             pct, bytes_transferred, total_bytes, elapsed,
         )

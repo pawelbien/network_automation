@@ -9,6 +9,7 @@ from network_automation.platforms.huawei_vrp.upload import (
     compute_local_md5,
     verify_remote_file,
     upload_with_retry,
+    _make_progress_callback,
 )
 from network_automation.results import OperationResult
 
@@ -375,3 +376,35 @@ def test_upload_with_retry_missing_local_file_not_retried(mocker, huawei_client,
         )
 
     mock_sleep.assert_not_called()
+
+
+# -------------------------------------------------------
+# _make_progress_callback resilience
+# -------------------------------------------------------
+
+def test_progress_callback_survives_logger_failure(mocker, huawei_client):
+    """
+    The throttled sftp.put() progress callback logs via
+    client._safe_log_info() (BaseClient), not client.logger.info()
+    directly — a transient logger failure partway through a multi-minute
+    transfer must not blow up the callback paramiko invokes synchronously
+    on the upload's own calling thread. Same risk class as
+    wait_for_reconnect()'s heartbeat logging.
+    """
+    monotonic_values = iter([1000.0, 1000.0, 1065.0])
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload.time.monotonic",
+        side_effect=lambda: next(monotonic_values),
+    )
+
+    huawei_client.logger = MagicMock()
+    huawei_client.logger.info.side_effect = RuntimeError(
+        "Lost connection to MySQL server during query"
+    )
+    huawei_client.conn = MagicMock()
+
+    callback = _make_progress_callback(huawei_client)
+    callback(500, 1000)  # must not raise
+
+    huawei_client.logger.info.assert_called_once()
+    huawei_client.conn.send_command_timing.assert_called_once_with("\n", read_timeout=5)

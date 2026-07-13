@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from network_automation.platforms.huawei_vrp.client import HuaweiVRP, _safe_log_info
+from network_automation.platforms.huawei_vrp.client import HuaweiVRP
 
 
 def test_upload_timeout_and_retries_defaults(huawei_client):
@@ -106,32 +106,7 @@ def test_reboot_tolerates_connection_dying_after_confirmation(huawei_client):
     huawei_client.reboot()  # must not raise
 
 
-# ---------- _safe_log_info / wait_for_reconnect resilience ----------
-
-def test_safe_log_info_swallows_logger_exception():
-    # Nautobot's Job logger runs a DB query on every emit() with no
-    # try/except of its own (confirmed live, 2026-07-12): a transient
-    # OperationalError there must never propagate out of a status/
-    # heartbeat log call.
-    client = MagicMock()
-    client.logger.info.side_effect = RuntimeError(
-        "Lost connection to MySQL server during query"
-    )
-
-    _safe_log_info(client, "Still waiting for %s to reconnect (%ds elapsed)", "1.1.1.1", 65)  # must not raise
-
-    client.logger.info.assert_called_once_with(
-        "Still waiting for %s to reconnect (%ds elapsed)", "1.1.1.1", 65,
-    )
-
-
-def test_safe_log_info_calls_through_on_success():
-    client = MagicMock()
-
-    _safe_log_info(client, "Device fully online (SSH + CLI ready).")
-
-    client.logger.info.assert_called_once_with("Device fully online (SSH + CLI ready).")
-
+# ---------- wait_for_reconnect resilience (BaseClient._safe_log_info unit tests: see tests/test_base_client.py) ----------
 
 def test_wait_for_reconnect_survives_logger_failure_during_heartbeat(mocker, huawei_client):
     """

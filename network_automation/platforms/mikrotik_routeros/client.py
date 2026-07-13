@@ -147,9 +147,17 @@ class MikrotikRouterOS(BaseClient):
         self.conn = None
 
     def wait_for_reconnect(self):
-        """Wait until RouterOS is reachable via SSH and CLI is ready."""
+        """
+        Wait until RouterOS is reachable via SSH and CLI is ready.
 
-        self.logger.info(
+        All status/heartbeat logging here goes through
+        BaseClient._safe_log_info() (best-effort, never raises) — a logger
+        failure must never abort a reconnect wait that is itself
+        succeeding. See that method's docstring for why (huawei_vrp hit
+        this live first; identical risk here).
+        """
+
+        self._safe_log_info(
             "Waiting for %s to reconnect...",
             self.host,
         )
@@ -182,7 +190,7 @@ class MikrotikRouterOS(BaseClient):
                 )
 
                 if "version" in out.lower():
-                    self.logger.info(
+                    self._safe_log_info(
                         "Device fully online (SSH + CLI ready)."
                     )
                     self.conn = conn
@@ -202,7 +210,7 @@ class MikrotikRouterOS(BaseClient):
             # ---- heartbeat INFO every 60s ----
             now = time.time()
             if now - last_log > 60:
-                self.logger.info(
+                self._safe_log_info(
                     "Still waiting for %s to reconnect "
                     "(%ds elapsed)",
                     self.host,
