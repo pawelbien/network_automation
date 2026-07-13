@@ -54,12 +54,12 @@ UNVERIFIED ON REAL HARDWARE — validate before production use:
      files on real hardware.
 """
 
-import hashlib
 import time
 
 from netmiko.exceptions import ReadTimeout
 
 from network_automation.results import OperationResult
+from network_automation.device_paths import safe_device_name
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
 from network_automation.platforms.huawei_vrp.info import get_flash_info
 from network_automation.platforms.huawei_vrp.flash import _delete_file
@@ -135,12 +135,13 @@ def _flash_safe_filename(name: str) -> str:
     never this one, so trading readability for a guaranteed-short,
     collision-resistant name here (only when actually needed) is safe.
     """
-    filename = f"{BACKUP_PREFIX}{name}{BACKUP_EXTENSION}"
-    if len(f"flash:/{filename}") <= MAX_FLASH_PATH_LENGTH:
-        return filename
-
-    digest = hashlib.md5(name.encode()).hexdigest()[:16]
-    return f"{BACKUP_PREFIX}{digest}{BACKUP_EXTENSION}"
+    return safe_device_name(
+        name,
+        prefix=BACKUP_PREFIX,
+        suffix=BACKUP_EXTENSION,
+        max_length=MAX_FLASH_PATH_LENGTH,
+        path_prefix="flash:/",
+    )
 
 
 def _verify_backup_file_exists(client, *, filename: str):

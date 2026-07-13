@@ -5,6 +5,28 @@ Mikrotik RouterOS backup helpers.
 """
 
 from network_automation.results import OperationResult
+from network_automation.device_paths import safe_device_name
+
+# Applied as a general precaution: some platform CLIs hard-reject a
+# command once the file name/path argument exceeds a certain length, so a
+# long Nautobot device name is kept from generating an on-device name past
+# this limit. No such limit has been independently confirmed on RouterOS
+# itself yet.
+MAX_BACKUP_NAME_LENGTH = 64
+
+
+def _safe_backup_name(name: str) -> str:
+    """
+    Build the on-device backup name ('nauto_<name>'), falling back to a
+    short, deterministic hash of `name` if the full name would exceed
+    MAX_BACKUP_NAME_LENGTH.
+
+    This name is purely an internal, device-side implementation detail —
+    callers only ever see the caller-supplied logical name via
+    OperationResult.metadata, never this one.
+    """
+    return safe_device_name(name, prefix="nauto_", max_length=MAX_BACKUP_NAME_LENGTH)
+
 
 def cleanup_old_backups(client):
     """
@@ -72,7 +94,7 @@ def run_backup(
 
         cleanup_old_backups(client)
 
-        backup_name = f"nauto_{name}"
+        backup_name = _safe_backup_name(name)
         backup_file = f"{backup_name}.backup"
         logical_file = f"{name}.backup"
 
