@@ -97,11 +97,11 @@ def cleanup_flash(
     Deleting a file still configured as "Backup system software for next
     startup" is rejected by VRP ("Error: This is system startup file"); to
     free it, first re-point the backup slot at the current startup image
-    (`startup system-software <filename> backup` — bare filename, no
-    flash:/ prefix, verified against real device output; the device
-    reports this as a multi-minute operation), which is always safe since
-    that file is itself protected. Then delete the now-unreferenced old
-    backup file like any other candidate.
+    (`startup system-software flash:/<filename> backup` — same
+    flash:/-prefixed syntax as the primary next-startup command; the
+    device reports this as a multi-minute operation), which is always safe
+    since that file is itself protected. Then delete the now-unreferenced
+    old backup file like any other candidate.
 
     - no connect/disconnect
     - raises RuntimeError if any delete is rejected
@@ -117,7 +117,7 @@ def cleanup_flash(
     ]
 
     if backup_image_name and backup_image_name in candidates:
-        command = f"startup system-software {startup_image_name} backup"
+        command = f"startup system-software flash:/{startup_image_name} backup"
         client.logger.info(
             "Re-pointing backup image to free %s — this can take several "
             "minutes with no output; this is expected, not a hang.",

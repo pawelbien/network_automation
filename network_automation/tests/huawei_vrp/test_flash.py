@@ -138,7 +138,7 @@ def test_cleanup_flash_repoints_backup_before_deleting_it():
     )
 
     conn.send_command.assert_called_once_with(
-        "startup system-software AR650A_V300R023C00SPC100.cc backup",
+        "startup system-software flash:/AR650A_V300R023C00SPC100.cc backup",
         read_timeout=300,
     )
     conn.send_command_timing.assert_any_call("delete flash:/AR650A_V300R022C00SPC100.cc")

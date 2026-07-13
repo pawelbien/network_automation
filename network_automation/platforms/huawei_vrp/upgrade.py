@@ -86,6 +86,50 @@ def configure_next_startup(client, filename: str):
     client.logger.info("Next-boot startup image set to flash:/%s", filename)
 
 
+def configure_backup_startup(client, filename: str):
+    """
+    Point the device's backup startup image at `filename` and verify it stuck.
+
+    Called during a firmware upgrade to preserve the firmware that was
+    running *before* this upgrade as a fallback, in case the new image
+    fails to boot. VRP has no equivalent "backup patch" slot — only the
+    startup image can be backed up this way, so this is never called for
+    patch-only operations and never touches the patch startup fields.
+
+    Same slow on-device verification as configure_next_startup() — see
+    that function's docstring for the read_timeout rationale.
+
+    - no connect/disconnect
+    - raises RuntimeError if `display startup` doesn't reflect the change
+    """
+    client.logger.info(
+        "Configuring backup startup image: flash:/%s (device "
+        "re-verifies the whole package, can take a while)...",
+        filename,
+    )
+    command = f"startup system-software flash:/{filename} backup"
+    debug_log(client, "send_command: %s", command)
+    ack = client.conn.send_command(command, read_timeout=300)
+    debug_log(client, "send_command response: %s", ack)
+    _check_cli_output(command, ack, expect_content=False)
+
+    debug_log(client, "send_command: %s", "display startup")
+    startup_output = client.conn.send_command("display startup")
+    debug_log(client, "send_command response: %s", startup_output)
+    _check_cli_output("display startup", startup_output)
+    startup = _parse_startup(startup_output)
+    master = startup.get("master", {})
+    backup_image = master.get("backup_image") or ""
+
+    if not backup_image.endswith(filename):
+        raise RuntimeError(
+            "Backup startup configuration verification failed: expected "
+            f"backup image to end with '{filename}', got {backup_image!r}"
+        )
+
+    client.logger.info("Backup startup image set to flash:/%s", filename)
+
+
 def configure_next_startup_patch(client, filename: str):
     """
     Point the device's next-boot startup patch at `filename` and verify it stuck.
@@ -325,11 +369,15 @@ def upgrade(client, *, return_result: bool = False):
     operation type:
     - NONE: skip.
     - PATCH_ONLY: upload patch, verify its MD5, hot-apply, verify, save
-      configuration.
+      configuration. Never touches the backup startup image — VRP has no
+      "backup patch" concept.
     - FIRMWARE_ONLY: upload firmware, verify its MD5, configure next startup
-      image, reboot, wait for reconnect, verify final firmware version.
+      image, point the backup startup image at the firmware that was
+      running before this upgrade, reboot, wait for reconnect, verify
+      final firmware version.
     - FIRMWARE_AND_PATCH: upload firmware + patch, verify both MD5s,
-      configure next startup image and patch, reboot, wait for reconnect,
+      configure next startup image and patch, point the backup startup
+      image at the pre-upgrade firmware, reboot, wait for reconnect,
       verify final firmware and patch, save configuration.
 
     Raises RuntimeError if the device reports more than one unit (stacks are
@@ -347,10 +395,10 @@ def upgrade(client, *, return_result: bool = False):
     DeviceBusyError instead of racing this one.
 
     Idempotent: before each state-changing step (upload, apply_patch,
-    configure_next_startup[_patch], reboot) checks whether it's already
-    done — see idempotency.py — so re-running after an interruption is
-    safe. Every skipped step is logged and recorded in
-    result.metadata["skipped_steps"].
+    configure_next_startup[_patch], configure_backup_startup, reboot)
+    checks whether it's already done — see idempotency.py — so re-running
+    after an interruption is safe. Every skipped step is logged and
+    recorded in result.metadata["skipped_steps"].
 
     Before any upload: computes required flash space for the target files
     (see flash.py) and, if free space is insufficient, deletes candidate
@@ -492,6 +540,12 @@ def upgrade(client, *, return_result: bool = False):
                         not next_startup.endswith(firmware_path.name)
                     )
 
+                    previous_firmware_filename = (units[0].get("startup_image") or "").removeprefix("flash:/")
+                    backup_image = units[0].get("backup_image") or ""
+                    execution_plan["would_configure_backup_startup"] = (
+                        not backup_image.endswith(previous_firmware_filename)
+                    )
+
                     if operation_type == OPERATION_FIRMWARE_AND_PATCH:
                         next_startup_patch = units[0].get("next_startup_patch") or ""
                         execution_plan["would_configure_next_startup_patch"] = (
@@ -572,6 +626,16 @@ def upgrade(client, *, return_result: bool = False):
                 else:
                     with debug_timed_step(client, "configure_next_startup_patch"):
                         configure_next_startup_patch(client, patch_path.name)
+
+            previous_firmware_filename = (units[0].get("startup_image") or "").removeprefix("flash:/")
+            backup_image = units[0].get("backup_image") or ""
+            if backup_image.endswith(previous_firmware_filename):
+                msg = f"backup_image already points to {previous_firmware_filename}"
+                client.logger.info("Skipping configure_backup_startup: %s", msg)
+                result.metadata.setdefault("skipped_steps", {})["configure_backup_startup"] = msg
+            else:
+                with debug_timed_step(client, "configure_backup_startup"):
+                    configure_backup_startup(client, previous_firmware_filename)
 
             if already_running_target(client, client.firmware_version, client.patch_version):
                 msg = "device already running target firmware/patch"

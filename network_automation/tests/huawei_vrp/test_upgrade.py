@@ -11,6 +11,7 @@ from network_automation.platforms.huawei_vrp.lock import DeviceBusyError, _lock_
 from network_automation.platforms.huawei_vrp.version import DowngradeRejectedError
 from network_automation.platforms.huawei_vrp.upgrade import (
     configure_next_startup,
+    configure_backup_startup,
     configure_next_startup_patch,
     apply_patch,
     verify_md5,
@@ -122,6 +123,17 @@ MainBoard:
 """
 
 
+def _display_startup_with_backup(current_filename: str, next_filename: str, backup_filename: str) -> str:
+    return f"""\
+MainBoard:
+  Startup system software:                   flash:/{current_filename}
+  Next startup system software:              flash:/{next_filename}
+  Backup system software for next startup:   flash:/{backup_filename}
+  Startup patch package:                     null
+  Next startup patch package:                null
+"""
+
+
 def _display_startup_with_patch(
     current_image: str, next_image: str, current_patch: str, next_patch: str
 ) -> str:
@@ -199,6 +211,55 @@ def test_configure_next_startup_raises_cli_error_on_display_startup_error(huawei
 
     with pytest.raises(CLIError):
         configure_next_startup(huawei_client, TARGET_FILENAME)
+
+
+# ---------- configure_backup_startup ----------
+
+def test_configure_backup_startup_success(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = [
+        "",  # ack for "startup system-software flash:/... backup"
+        _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
+    ]
+
+    configure_backup_startup(huawei_client, "old.cc")
+
+    assert fake_conn.send_command.call_count == 2
+    fake_conn.send_command.assert_any_call(
+        "startup system-software flash:/old.cc backup",
+        read_timeout=300,
+    )
+
+
+def test_configure_backup_startup_mismatch_raises(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = [
+        "",
+        _display_startup_with_backup("old.cc", TARGET_FILENAME, "unexpected.cc"),
+    ]
+
+    with pytest.raises(RuntimeError):
+        configure_backup_startup(huawei_client, "old.cc")
+
+
+def test_configure_backup_startup_raises_cli_error_on_ack_error(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = ["% Wrong parameter"]
+
+    with pytest.raises(CLIError):
+        configure_backup_startup(huawei_client, "old.cc")
+
+
+def test_configure_backup_startup_raises_cli_error_on_display_startup_error(huawei_client, fake_conn):
+    huawei_client.conn = fake_conn
+
+    fake_conn.send_command.side_effect = ["", "Error: internal failure"]
+
+    with pytest.raises(CLIError):
+        configure_backup_startup(huawei_client, "old.cc")
 
 
 # ---------- configure_next_startup_patch ----------
@@ -402,6 +463,8 @@ def test_upgrade_success(mocker, huawei_client, fake_conn):
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         # configure_next_startup
         "", _display_startup("old.cc", TARGET_FILENAME),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         # get_info() after reboot (final=200)
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
@@ -463,6 +526,8 @@ def test_upgrade_version_mismatch_raises(mocker, huawei_client, fake_conn):
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         # configure_next_startup
         "", _display_startup("old.cc", TARGET_FILENAME),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         # get_info() after reboot (mismatch: still 100 instead of 200)
         _display_version("100"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
@@ -614,6 +679,8 @@ def test_upgrade_firmware_and_patch(mocker, huawei_client, fake_conn):
         "", _display_startup("old.cc", TARGET_FILENAME),
         # configure_next_startup_patch
         "", _display_startup_with_patch(TARGET_FILENAME, TARGET_FILENAME, "old.pat", PATCH_FILENAME),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         # get_info() after reboot (final=200)
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
@@ -734,6 +801,8 @@ def test_upgrade_force_downgrade_with_confirmation_succeeds(mocker, huawei_clien
         _display_version("200"), _ESN, _display_startup("old.cc", "old.cc"),
         # configure_next_startup
         "", _display_startup("old.cc", downgrade_filename),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", downgrade_filename, "old.cc"),
         # get_info() after reboot (final=100, the downgraded version)
         _display_version("100"), _ESN,
         _display_startup(downgrade_filename, downgrade_filename),
@@ -986,6 +1055,9 @@ def test_upgrade_skips_configure_next_startup_when_already_set(mocker, huawei_cl
     mock_configure = mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.configure_next_startup"
     )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.configure_backup_startup"
+    )
     mocker.patch.object(huawei_client, "reboot")
     mocker.patch.object(huawei_client, "wait_for_reconnect", return_value=fake_conn)
 
@@ -1021,6 +1093,9 @@ def test_upgrade_skips_reboot_when_already_running_target(mocker, huawei_client,
     mocker.patch(
         "network_automation.platforms.huawei_vrp.upgrade.already_running_target",
         return_value=True,
+    )
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upgrade.configure_backup_startup"
     )
     mock_reboot = mocker.patch.object(huawei_client, "reboot")
 
@@ -1136,6 +1211,8 @@ def test_upgrade_firmware_only_md5_match(mocker, huawei_client, fake_conn, tmp_p
         _display_file_md5(TARGET_FILENAME, firmware_md5),
         # configure_next_startup
         "", _display_startup("old.cc", TARGET_FILENAME),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         # get_info() after reboot (final=200)
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
@@ -1228,6 +1305,8 @@ def test_upgrade_firmware_and_patch_md5_match(mocker, huawei_client, fake_conn, 
         "", _display_startup("old.cc", TARGET_FILENAME),
         # configure_next_startup_patch
         "", _display_startup_with_patch(TARGET_FILENAME, TARGET_FILENAME, "old.pat", PATCH_FILENAME),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         # get_info() after reboot (final=200)
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
@@ -1317,6 +1396,7 @@ def test_upgrade_records_transfer_verification_metadata(mocker, huawei_client, f
     fake_conn.send_command.side_effect = [
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
     ]
@@ -1398,6 +1478,7 @@ def test_upgrade_runs_real_health_check_and_records_baseline(mocker, huawei_clie
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         _CPU_OK, _MEMORY_OK, _ALARM_NONE, _INTERFACE_ALL_UP,
         "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
     ]
@@ -1475,6 +1556,7 @@ def test_upgrade_health_check_warn_mode_proceeds(mocker, huawei_client, fake_con
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         _CPU_HIGH, _MEMORY_OK, _ALARM_NONE, _INTERFACE_ALL_UP,
         "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
     ]
@@ -1539,6 +1621,7 @@ def test_upgrade_records_extended_post_reboot_validation_metadata(mocker, huawei
     fake_conn.send_command.side_effect = [
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
         _DISPLAY_ROUTING_TABLE_OK,
@@ -1599,6 +1682,7 @@ def test_upgrade_post_reboot_interface_failure_marks_validation_failed(mocker, h
     fake_conn.send_command.side_effect = [
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
         _DISPLAY_ROUTING_TABLE_OK,
@@ -1691,6 +1775,7 @@ def test_upgrade_records_reboot_duration_seconds(mocker, huawei_client, fake_con
     fake_conn.send_command.side_effect = [
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         "", _display_startup("old.cc", TARGET_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
     ]
@@ -1735,6 +1820,7 @@ def test_upgrade_full_report_shape_contains_all_expected_fields(mocker, huawei_c
         _display_patch_information("ARV300R024SPH1a0", "old.pat"),
         "", _display_startup("old.cc", TARGET_FILENAME),
         "", _display_startup_with_patch(TARGET_FILENAME, TARGET_FILENAME, "old.pat", PATCH_FILENAME),
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
         _display_patch_information("ARV300R024SPH1b0", PATCH_FILENAME),
@@ -1902,6 +1988,8 @@ def _mock_firmware_only_success(mocker, huawei_client, fake_conn):
         _display_version("100"), _ESN, _display_startup("old.cc", "old.cc"),
         # configure_next_startup
         "", _display_startup("old.cc", TARGET_FILENAME),
+        # configure_backup_startup
+        "", _display_startup_with_backup("old.cc", TARGET_FILENAME, "old.cc"),
         # get_info() after reboot (final=200)
         _display_version("200"), _ESN,
         _display_startup(TARGET_FILENAME, TARGET_FILENAME),
