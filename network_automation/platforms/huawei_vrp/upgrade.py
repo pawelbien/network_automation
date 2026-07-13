@@ -459,6 +459,11 @@ def upgrade(client, *, return_result: bool = False):
                 current_patch = get_patch_info(client)["patch_version"]
             result.metadata["current_patch"] = current_patch
 
+            client.logger.info(
+                "Found firmware %s, patch %s currently running",
+                current_version, current_patch or "none",
+            )
+
             operation_type = determine_operation_type(
                 current_version, client.firmware_version, current_patch, client.patch_version,
                 force_downgrade=client.force_downgrade,
