@@ -72,12 +72,11 @@ BACKUP_EXTENSION = ".zip"
 # VRP's CLI parser hard-rejects the whole `save <path>` command
 # ("Unrecognized command found at '^' position.") if <path> exceeds a
 # device-imposed length limit — confirmed live via bisection on real
-# hardware (2026-07-12, AR650, VRP sysname
-# "01029595-Krotoski-Przybyszewskiego176-r1", 40 chars): a 64-character
+# hardware (2026-07-12, AR650, 40-char device name): a 64-character
 # "flash:/<file>" path is accepted, 65 characters is rejected outright.
-# Not confirmed whether 64 is universal across VRP builds/models or
-# specific to this one — kept as a named constant so it's easy to revisit
-# if a different limit turns up elsewhere.
+# Confirmed on a second model (AR651, 2026-07-13) as well — kept as a
+# named constant so it's easy to revisit if a different limit turns up
+# elsewhere.
 MAX_FLASH_PATH_LENGTH = 64
 
 # Retries for the flash directory read inside _verify_backup_file_exists()
