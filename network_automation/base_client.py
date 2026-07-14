@@ -29,31 +29,17 @@ def _classify_connect_failure(exc: Exception) -> str:
         text = str(node)
 
         if isinstance(node, ConnectionResetError) or "connection reset" in text.lower():
-            return (
-                "Connection reset by peer. Device is reachable but actively "
-                "rejected the connection (e.g. an SSH auth/algorithm "
-                "mismatch, or a temporary lockout after a failed login)."
-            )
+            return "Connection reset by peer (device responded, then rejected the connection)."
 
         if isinstance(node, ConnectionRefusedError) or "connection refused" in text.lower():
-            return (
-                "Connection refused. Device is reachable but nothing "
-                "accepted the connection on this port (SSH may be down, "
-                "or wrong port)."
-            )
+            return "Connection refused (nothing accepted the connection on this port)."
 
         # Netmiko's own exceptions subclass SSHException too - excluded so
         # this only fires for the real underlying paramiko exception.
         if isinstance(node, SSHException) and not isinstance(
             node, (NetmikoTimeoutException, NetmikoAuthenticationException)
         ):
-            return (
-                f"SSH protocol/authentication rejected during connection "
-                f"setup ({text!r}). Device is reachable and responded - "
-                f"this is not a network timeout. A common cause on older "
-                f"devices is an unsupported public key signature algorithm "
-                f"(see disabled_algorithms)."
-            )
+            return f"SSH protocol/authentication rejected ({text!r}) — see disabled_algorithms."
 
         node = node.__context__ or node.__cause__
 

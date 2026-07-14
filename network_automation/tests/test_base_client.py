@@ -46,7 +46,7 @@ def test_classify_connect_failure_reset_via_context():
     result = _classify_connect_failure(outer)
 
     assert "reset by peer" in result.lower()
-    assert "reachable" in result.lower()
+    assert "responded" in result.lower()
 
 
 def test_classify_connect_failure_refused_via_context():
@@ -102,8 +102,7 @@ def test_classify_connect_failure_generic_sshexception_invalid_key():
     result = _classify_connect_failure(outer)
 
     assert "invalid key" in result.lower()
-    assert "reachable and responded" in result.lower()
-    assert "not a network timeout" in result.lower()
+    assert "disabled_algorithms" in result.lower()
 
 
 def test_classify_connect_failure_prioritizes_reset_text_over_generic_sshexception():
