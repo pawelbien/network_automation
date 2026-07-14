@@ -22,6 +22,19 @@ from network_automation.platforms.huawei_vrp.client import HuaweiVRP
 from network_automation.platforms.huawei_vrp.upload import upload_with_retry
 
 
+@pytest.fixture(autouse=True)
+def _skip_sftp_server_check(mocker):
+    """
+    _ensure_sftp_server_enabled() needs client.conn.send_command(), which
+    these tests don't set up (they exercise the dedicated SFTP connection
+    only, not client.conn) — patched to a no-op here. See
+    test_sftp_server_check.py for dedicated tests of the check itself.
+    """
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._ensure_sftp_server_enabled",
+    )
+
+
 _DISPLAY_VERSION = """\
 Huawei Versatile Routing Platform Software
 VRP (R) software, Version 5.170 (AR650 V300R024C00SPC100)

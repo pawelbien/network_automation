@@ -7,8 +7,22 @@ from contextlib import contextmanager
 from pathlib import Path
 import paramiko
 from network_automation.results import OperationResult
+from network_automation.platforms.huawei_vrp.cli_errors import _check_cli_output
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
 from network_automation.platforms.huawei_vrp.info import get_flash_info
+
+
+class SftpServerDisabledError(RuntimeError):
+    """
+    Raised by _ensure_sftp_server_enabled() when a device's SFTP server
+    isn't enabled. Kept as a distinct type (not just RuntimeError) so
+    callers with their own retry loops (e.g. upload_with_retry()) can
+    special-case it and fail immediately, the same way they already do
+    for FileNotFoundError — no amount of retrying an SSH connection
+    changes a missing device config, so retrying only adds noise and
+    delay.
+    """
+
 
 # Fixed pause between upload_with_retry() attempts. Not user-configurable —
 # only the attempt count (upload_retries) and per-attempt transfer timeout
@@ -60,6 +74,58 @@ def _connect_dedicated(client) -> paramiko.SSHClient:
     return ssh
 
 
+def _sftp_server_enabled(display_output: str) -> bool:
+    """
+    Pure check over 'display current-configuration | include sftp'
+    output: True only if a line is *exactly* 'sftp server enable' (after
+    stripping whitespace) — deliberately not a bare substring match, so
+    'undo sftp server enable' (explicitly disabled on some VRP builds/
+    versions) is not mistaken for enabled.
+    """
+    return any(
+        line.strip() == "sftp server enable"
+        for line in display_output.splitlines()
+    )
+
+
+def _ensure_sftp_server_enabled(client):
+    """
+    Fail fast, with a clear and actionable error, if this device's SFTP
+    server isn't enabled — before attempting a dedicated SFTP connection
+    at all.
+
+    Observed live (2026-07-14, a device never previously exercised by
+    this job): SSH transport + auth succeed normally (client.conn's
+    interactive session works fine for `dir`/`save`/etc.), but
+    ssh.open_sftp() fails immediately with a bare 'Channel closed.' —
+    paramiko debug logs show the channel opening and then an EOF within
+    ~13ms, before any SFTP-specific exchange. All 3 upload_with_retry()
+    attempts failed identically (not a transient blip). Root-caused via
+    `display current-configuration | include sftp` returning nothing on
+    the device: `sftp server enable` (a standard VRP command, stable
+    across the AR/S/NE families — though only verified live against
+    AR650 units by this job so far) was never configured. Enabling it in
+    system-view resolves this; no amount of retrying in our code can.
+
+    - no connect/disconnect (uses client.conn, already connected)
+    - raises RuntimeError if the check itself reveals SFTP isn't enabled
+    """
+    command = "display current-configuration | include sftp"
+    debug_log(client, "send_command: %s", command)
+    output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
+    _check_cli_output(command, output, expect_content=False)
+
+    if not _sftp_server_enabled(output):
+        raise SftpServerDisabledError(
+            "SFTP server is not enabled on this device (no 'sftp server "
+            "enable' in the running configuration) — enable it via "
+            "'system-view' -> 'sftp server enable' on the device. This is "
+            "a device configuration gap, not something upload/download "
+            "retries can fix."
+        )
+
+
 @contextmanager
 def _dedicated_sftp(client, *, timeout: float | None = None):
     """
@@ -76,9 +142,16 @@ def _dedicated_sftp(client, *, timeout: float | None = None):
     docs/problems/huawei-vrp-sftp-open-failure.md for how both this and
     the shared-transport-hang issue were found.
 
+    Checks _ensure_sftp_server_enabled() first — see that function's
+    docstring for why: without it, a device with SFTP disabled fails
+    with a bare, unhelpful 'Channel closed.' after 3 full retry attempts
+    instead of one clear, immediate error.
+
     Closes the SFTP client and the dedicated connection on exit, even on
     exception.
     """
+    _ensure_sftp_server_enabled(client)
+
     debug_log(client, "opening dedicated SFTP connection (plain paramiko, no interactive shell channel)")
     ssh = _connect_dedicated(client)
     try:
@@ -271,7 +344,9 @@ def upload_with_retry(
     established retry style — no tenacity/decorator.
 
     A missing local file (FileNotFoundError) is not retried — no number of
-    attempts will make a nonexistent local file appear.
+    attempts will make a nonexistent local file appear. Same for
+    SftpServerDisabledError (see _ensure_sftp_server_enabled()) — a
+    missing device config isn't fixed by retrying either.
 
     client.conn (the interactive CLI session used by the post-transfer
     verify_remote_file() call below) gets a periodic no-op keepalive for
@@ -328,7 +403,7 @@ def upload_with_retry(
                 )
             return results
 
-        except FileNotFoundError:
+        except (FileNotFoundError, SftpServerDisabledError):
             raise
 
         except Exception as exc:

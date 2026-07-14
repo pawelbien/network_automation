@@ -95,3 +95,27 @@ library in the background), not over a transport shared with an
 interactive session — even a seemingly "new" session from the same CLI
 library may open its own shell channel in the background and reproduce
 the problem.
+
+## Problem #4: `open_sftp()` fails immediately if the device's SFTP server isn't enabled
+
+On a device where the SFTP subsystem was never enabled, SSH transport
+setup and authentication succeed completely normally (an interactive CLI
+session over the same credentials works fine), but `ssh.open_sftp()`
+fails with a bare `Channel closed.` — paramiko debug logs show the
+channel opening and then an EOF within milliseconds, before any
+SFTP-specific protocol exchange happens. Every retry fails identically;
+it is not transient.
+
+Root cause: VRP requires the SFTP server to be explicitly enabled
+(`sftp server enable` in system-view) — without it, the SSH transport
+accepts a channel open but rejects the subsequent subsystem request for
+`sftp`. `display current-configuration | include sftp` shows no
+`sftp server enable` line when this is the case.
+
+**Takeaway**: `Channel closed.` immediately on `open_sftp()` (channel
+opens, then EOF within milliseconds, consistent across every retry) is a
+strong signal to check the device's running config for `sftp server
+enable` before assuming a code or network bug — no amount of retrying an
+SSH/SFTP connection fixes a disabled server-side subsystem. Distinguish
+from Problem #3 above by timing: Problem #3 hangs for minutes before
+failing; this fails in well under a second, every time.

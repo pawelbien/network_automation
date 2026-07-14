@@ -7,6 +7,19 @@ import pytest
 from network_automation.results import OperationResult
 
 
+@pytest.fixture(autouse=True)
+def _skip_sftp_server_check(mocker):
+    """
+    _ensure_sftp_server_enabled() needs client.conn.send_command(), which
+    these tests don't set up (they exercise the dedicated SFTP connection
+    only, not client.conn) — patched to a no-op here. See
+    test_sftp_server_check.py for dedicated tests of the check itself.
+    """
+    mocker.patch(
+        "network_automation.platforms.huawei_vrp.upload._ensure_sftp_server_enabled",
+    )
+
+
 # -------------------------------------------------------
 # Fake SFTP stack (dedicated connection opened internally by download_files())
 # -------------------------------------------------------
