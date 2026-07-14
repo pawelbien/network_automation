@@ -6,6 +6,47 @@ from network_automation.context import ExecutionContext
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 
 
+def _classify_connect_failure(exc: Exception) -> str:
+    """
+    Best-effort, human-readable classification of why a connection attempt
+    failed, for a log message closer to the truth than a blanket "may be
+    offline". Netmiko's own exceptions were found (empirically, against a
+    real legacy-SSH Huawei VRP device) to carry the underlying paramiko/
+    socket error via __context__, not __cause__ - both are checked here.
+    Never raises; falls back to the original "may be offline" wording when
+    nothing more specific is found in the chain.
+
+    A "Connection reset"/"Connection refused" means something on the other
+    end actively responded and rejected the connection - i.e. the device
+    IS reachable - which is a meaningfully different situation from a
+    genuine timeout (no response of any kind, e.g. a truly offline host).
+    """
+    node = exc
+    seen = set()
+
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        text = str(node)
+
+        if isinstance(node, ConnectionResetError) or "connection reset" in text.lower():
+            return (
+                "Connection reset by peer. Device is reachable but actively "
+                "rejected the connection (e.g. an SSH auth/algorithm "
+                "mismatch, or a temporary lockout after a failed login)."
+            )
+
+        if isinstance(node, ConnectionRefusedError) or "connection refused" in text.lower():
+            return (
+                "Connection refused. Device is reachable but nothing "
+                "accepted the connection on this port (SSH may be down, "
+                "or wrong port)."
+            )
+
+        node = node.__context__ or node.__cause__
+
+    return "Connection timeout. Device may be offline."
+
+
 class BaseClient:
     """
     BaseClient provides common connection handling and logging.
@@ -46,6 +87,8 @@ class BaseClient:
           - self.device (Netmiko connection parameters)
         """
         attempt = 1
+        last_exc = None
+        last_reason = "Connection timeout. Device may be offline."
 
         while attempt <= self.connect_retries:
             self.logger.info(
@@ -57,8 +100,10 @@ class BaseClient:
                 self.logger.info("Connected successfully.")
                 return
 
-            except NetmikoTimeoutException:
-                self.logger.warning("Connection timeout. Device may be offline.")
+            except NetmikoTimeoutException as exc:
+                last_exc = exc
+                last_reason = _classify_connect_failure(exc)
+                self.logger.warning(last_reason)
 
             except NetmikoAuthenticationException:
                 self.logger.error("Authentication failed.")
@@ -66,6 +111,8 @@ class BaseClient:
 
             except Exception as exc:
                 self.logger.error(f"Unexpected connection error: {exc}")
+                last_exc = exc
+                last_reason = _classify_connect_failure(exc)
 
             if attempt < self.connect_retries:
                 self.logger.info(
@@ -75,9 +122,16 @@ class BaseClient:
 
             attempt += 1
 
+        # Retries exhausted. Always surface NetmikoTimeoutException (existing
+        # callers branch on this type), but with the classified reason from
+        # the last attempt in the message (not just "may be offline" for
+        # every failure mode) and the real last exception chained as
+        # __cause__ instead of discarded, so a caller inspecting str(exc) or
+        # exc.__cause__ can tell a "device actively rejected us" failure
+        # apart from a genuine "no response at all" timeout.
         raise NetmikoTimeoutException(
-            f"Unable to connect after {self.connect_retries} attempts."
-        )
+            f"Unable to connect after {self.connect_retries} attempts. {last_reason}"
+        ) from last_exc
 
     def disconnect(self):
         """Close Netmiko connection if open."""

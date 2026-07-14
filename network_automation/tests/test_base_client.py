@@ -1,8 +1,10 @@
 # network_automation/tests/test_base_client.py
 
+import pytest
 from unittest.mock import MagicMock
 
-from network_automation.base_client import BaseClient
+from network_automation.base_client import BaseClient, _classify_connect_failure
+from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
 
 
 def test_safe_log_info_swallows_logger_exception():
@@ -30,3 +32,139 @@ def test_safe_log_info_calls_through_on_success():
     client._safe_log_info("Device fully online (SSH + CLI ready).")
 
     client.logger.info.assert_called_once_with("Device fully online (SSH + CLI ready).")
+
+
+# ---------------------------------------------------------------------------
+# _classify_connect_failure
+#
+# Empirically motivated (2026-07-14, real legacy-SSH Huawei VRP AR651):
+# Netmiko's own exceptions carry the underlying paramiko/socket error via
+# __context__, not __cause__, so both are checked. A "Connection reset"/
+# "Connection refused" means the device actively responded and rejected the
+# connection - meaningfully different from a genuine "no response" timeout.
+# ---------------------------------------------------------------------------
+
+def test_classify_connect_failure_reset_via_context():
+    outer = NetmikoTimeoutException("Unable to connect to port 22")
+    outer.__context__ = ConnectionResetError("Connection reset by peer")
+
+    result = _classify_connect_failure(outer)
+
+    assert "reset by peer" in result.lower()
+    assert "reachable" in result.lower()
+
+
+def test_classify_connect_failure_refused_via_context():
+    outer = NetmikoTimeoutException("Unable to connect")
+    outer.__context__ = ConnectionRefusedError("Connection refused")
+
+    result = _classify_connect_failure(outer)
+
+    assert "refused" in result.lower()
+
+
+def test_classify_connect_failure_matches_on_message_text_too():
+    # Observed against a real device: the reset shows up as plain text
+    # inside an SSHException message, not as a ConnectionResetError
+    # instance directly.
+    exc = NetmikoTimeoutException(
+        "Error reading SSH protocol banner[Errno 54] Connection reset by peer"
+    )
+
+    result = _classify_connect_failure(exc)
+
+    assert "reset by peer" in result.lower()
+
+
+def test_classify_connect_failure_walks_multiple_chain_levels():
+    inner = ConnectionResetError("Connection reset by peer")
+    middle = Exception("wrapped")
+    middle.__cause__ = inner
+    outer = NetmikoTimeoutException("Unable to connect")
+    outer.__context__ = middle
+
+    result = _classify_connect_failure(outer)
+
+    assert "reset by peer" in result.lower()
+
+
+def test_classify_connect_failure_falls_back_to_offline_wording():
+    exc = NetmikoTimeoutException("Unable to connect after 2 attempts.")
+
+    result = _classify_connect_failure(exc)
+
+    assert result == "Connection timeout. Device may be offline."
+
+
+# ---------------------------------------------------------------------------
+# connect()
+# ---------------------------------------------------------------------------
+
+def test_connect_final_exception_reflects_reset_classification(monkeypatch):
+    reset_exc = NetmikoTimeoutException("banner error")
+    reset_exc.__context__ = ConnectionResetError("Connection reset by peer")
+
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(side_effect=reset_exc),
+    )
+
+    client = BaseClient(connect_retries=1, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    with pytest.raises(NetmikoTimeoutException) as exc_info:
+        client.connect()
+
+    assert "reset by peer" in str(exc_info.value).lower()
+    assert exc_info.value.__cause__ is reset_exc
+
+
+def test_connect_final_exception_preserves_offline_wording_for_genuine_timeout(monkeypatch):
+    timeout_exc = NetmikoTimeoutException("Unable to connect to port 22 on 1.2.3.4")
+
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(side_effect=timeout_exc),
+    )
+
+    client = BaseClient(connect_retries=1, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    with pytest.raises(NetmikoTimeoutException) as exc_info:
+        client.connect()
+
+    assert "may be offline" in str(exc_info.value).lower()
+    assert exc_info.value.__cause__ is timeout_exc
+
+
+def test_connect_still_raises_authentication_exception_directly(monkeypatch):
+    auth_exc = NetmikoAuthenticationException("bad credentials")
+
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(side_effect=auth_exc),
+    )
+
+    client = BaseClient(connect_retries=2, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    with pytest.raises(NetmikoAuthenticationException):
+        client.connect()
+
+
+def test_connect_succeeds_without_touching_classification(monkeypatch):
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(return_value=MagicMock()),
+    )
+
+    client = BaseClient(connect_retries=2, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    client.connect()
+
+    assert client.conn is not None
