@@ -62,7 +62,7 @@ def test_calculate_required_space_custom_safety_margin():
 
 def test_delete_file_succeeds():
     conn = MagicMock()
-    conn.send_command_timing.side_effect = [
+    conn.send_command.side_effect = [
         "Info: Delete flash:/old.cc? [Y/N]:",
         "Info: Deleting file flash:/old.cc...succeeded.",
     ]
@@ -70,12 +70,13 @@ def test_delete_file_succeeds():
 
     _delete_file(client, "old.cc")
 
-    assert conn.send_command_timing.call_count == 2
+    assert conn.send_command.call_count == 2
+    conn.send_command_timing.assert_not_called()
 
 
 def test_delete_file_raises_when_rejected_as_system_startup_file():
     conn = MagicMock()
-    conn.send_command_timing.side_effect = [
+    conn.send_command.side_effect = [
         "Info: Delete flash:/old.cc? [Y/N]:",
         "Error: This is system startup file",
     ]
@@ -89,7 +90,7 @@ def test_delete_file_raises_when_rejected_as_system_startup_file():
 
 def test_cleanup_flash_deletes_only_candidates():
     conn = MagicMock()
-    conn.send_command_timing.side_effect = [
+    conn.send_command.side_effect = [
         "succeeded.",  # delete orphan.cc (no [Y/N] in this fake output)
         "succeeded.",  # reset recycle-bin
     ]
@@ -108,22 +109,30 @@ def test_cleanup_flash_deletes_only_candidates():
     )
 
     deleted = [
-        c.args[0] for c in conn.send_command_timing.call_args_list
+        c.args[0] for c in conn.send_command.call_args_list
         if c.args[0].startswith("delete ")
     ]
     assert deleted == ["delete flash:/orphan.cc"]
-    conn.send_command_timing.assert_any_call("reset recycle-bin")
+    conn.send_command.assert_any_call(
+        "reset recycle-bin",
+        expect_string=r"(?i)y/n|[\]>]",
+        read_timeout=300,
+        strip_prompt=False,
+        strip_command=False,
+    )
     assert deleted_files == ["orphan.cc"]
+    conn.send_command_timing.assert_not_called()
 
 
 def test_cleanup_flash_repoints_backup_before_deleting_it():
     conn = MagicMock()
-    conn.send_command.return_value = "Info: Succeeded in setting the backup file for booting system"
-    conn.send_command_timing.side_effect = [
-        "succeeded.",  # delete AR650A_V300R022C00SPC100.cc (old backup)
-        "succeeded.",  # delete orphan.cc
-        "succeeded.",  # reset recycle-bin
-    ]
+
+    def fake_send_command(command, **kwargs):
+        if command.startswith("startup system-software"):
+            return "Info: Succeeded in setting the backup file for booting system"
+        return "succeeded."  # delete AR650A_V300R022C00SPC100.cc / orphan.cc / reset recycle-bin
+
+    conn.send_command.side_effect = fake_send_command
     client = SimpleNamespace(conn=conn, logger=MagicMock())
 
     deleted_files = cleanup_flash(
@@ -137,17 +146,24 @@ def test_cleanup_flash_repoints_backup_before_deleting_it():
         backup_image_name="AR650A_V300R022C00SPC100.cc",
     )
 
-    conn.send_command.assert_called_once_with(
+    conn.send_command.assert_any_call(
         "startup system-software flash:/AR650A_V300R023C00SPC100.cc backup",
         read_timeout=300,
     )
-    conn.send_command_timing.assert_any_call("delete flash:/AR650A_V300R022C00SPC100.cc")
+    conn.send_command.assert_any_call(
+        "delete flash:/AR650A_V300R022C00SPC100.cc",
+        expect_string=r"(?i)y/n|[\]>]",
+        read_timeout=300,
+        strip_prompt=False,
+        strip_command=False,
+    )
     assert set(deleted_files) == {"AR650A_V300R022C00SPC100.cc", "orphan.cc"}
+    conn.send_command_timing.assert_not_called()
 
 
 def test_cleanup_flash_never_touches_protected_files():
     conn = MagicMock()
-    conn.send_command_timing.side_effect = ["succeeded."] * 10
+    conn.send_command.side_effect = ["succeeded."] * 10
     client = SimpleNamespace(conn=conn, logger=MagicMock())
 
     cleanup_flash(
@@ -163,11 +179,15 @@ def test_cleanup_flash_never_touches_protected_files():
     )
 
     deleted = [
-        c.args[0] for c in conn.send_command_timing.call_args_list
+        c.args[0] for c in conn.send_command.call_args_list
         if c.args[0].startswith("delete ")
     ]
     assert deleted == ["delete flash:/orphan.cc"]
-    conn.send_command.assert_not_called()  # no backup re-point needed
+    repoint_calls = [
+        c.args[0] for c in conn.send_command.call_args_list
+        if c.args[0].startswith("startup system-software")
+    ]
+    assert repoint_calls == []  # no backup re-point needed
 
 
 # ---------- ensure_flash_space ----------

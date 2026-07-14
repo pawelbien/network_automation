@@ -99,8 +99,8 @@ Directory of flash:/
 def test_cleanup_old_backups_deletes_only_nauto_prefixed_files(huawei_client, fake_conn):
     huawei_client.conn = fake_conn
 
-    fake_conn.send_command.side_effect = [_DIR_WITH_BACKUPS]
-    fake_conn.send_command_timing.side_effect = [
+    fake_conn.send_command.side_effect = [
+        _DIR_WITH_BACKUPS,
         "Delete flash:/nauto_old1.zip?[Y/N]:",
         "Info: Deleting file flash:/nauto_old1.zip...succeeded",
         "Delete flash:/nauto_old2.zip?[Y/N]:",
@@ -109,10 +109,11 @@ def test_cleanup_old_backups_deletes_only_nauto_prefixed_files(huawei_client, fa
 
     cleanup_old_backups(huawei_client)
 
-    fake_conn.send_command.assert_called_once_with("dir")
+    fake_conn.send_command_timing.assert_not_called()
 
-    timing_commands = [call.args[0] for call in fake_conn.send_command_timing.call_args_list]
-    assert timing_commands == [
+    commands = [call.args[0] for call in fake_conn.send_command.call_args_list]
+    assert commands == [
+        "dir",
         "delete flash:/nauto_old1.zip", "y",
         "delete flash:/nauto_old2.zip", "y",
     ]

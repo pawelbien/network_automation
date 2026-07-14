@@ -60,6 +60,12 @@ def _delete_file(client, filename: str) -> None:
     """
     Delete flash:/<filename>, confirming the interactive [Y/N] prompt.
 
+    Uses send_command()+expect_string rather than send_command_timing()'s
+    idle-time heuristic, for the same reason as save_configuration() (see
+    that function's docstring): the heuristic can return before the
+    "(y/n)" prompt arrives, which is read as "no confirmation needed" and
+    raises a misleading "Failed to delete ...: ''" from the empty output.
+
     - no connect/disconnect
     - raises RuntimeError if VRP rejects the deletion (e.g. the file is
       still referenced by startup config: "Error: This is system startup
@@ -67,16 +73,28 @@ def _delete_file(client, filename: str) -> None:
       report success
     """
     command = f"delete flash:/{filename}"
-    debug_log(client, "send_command_timing: %s", command)
-    output = client.conn.send_command_timing(command)
-    debug_log(client, "send_command_timing response: %s", output)
+    debug_log(client, "send_command: %s", command)
+    output = client.conn.send_command(
+        command,
+        expect_string=r"(?i)y/n|[\]>]",
+        read_timeout=300,
+        strip_prompt=False,
+        strip_command=False,
+    )
+    debug_log(client, "send_command response: %s", output)
 
     for _ in range(3):
         if "y/n" not in output.lower():
             break
-        debug_log(client, "send_command_timing: %s", "y")
-        output = client.conn.send_command_timing("y")
-        debug_log(client, "send_command_timing response: %s", output)
+        debug_log(client, "send_command: %s", "y")
+        output = client.conn.send_command(
+            "y",
+            expect_string=r"[\]>]",
+            read_timeout=300,
+            strip_prompt=False,
+            strip_command=False,
+        )
+        debug_log(client, "send_command response: %s", output)
 
     if "succeeded" not in output.lower():
         raise RuntimeError(f"Failed to delete flash:/{filename}: {output!r}")
@@ -131,15 +149,30 @@ def cleanup_flash(
     for filename in candidates:
         _delete_file(client, filename)
 
-    debug_log(client, "send_command_timing: %s", "reset recycle-bin")
-    output = client.conn.send_command_timing("reset recycle-bin")
-    debug_log(client, "send_command_timing response: %s", output)
+    # send_command()+expect_string, not send_command_timing() — same
+    # stuck-prompt risk as _delete_file() above: an unanswered [Y/N] left
+    # sitting here would fail every subsequent command, not just this one.
+    debug_log(client, "send_command: %s", "reset recycle-bin")
+    output = client.conn.send_command(
+        "reset recycle-bin",
+        expect_string=r"(?i)y/n|[\]>]",
+        read_timeout=300,
+        strip_prompt=False,
+        strip_command=False,
+    )
+    debug_log(client, "send_command response: %s", output)
     for _ in range(3):
         if "y/n" not in output.lower():
             break
-        debug_log(client, "send_command_timing: %s", "y")
-        output = client.conn.send_command_timing("y")
-        debug_log(client, "send_command_timing response: %s", output)
+        debug_log(client, "send_command: %s", "y")
+        output = client.conn.send_command(
+            "y",
+            expect_string=r"[\]>]",
+            read_timeout=300,
+            strip_prompt=False,
+            strip_command=False,
+        )
+        debug_log(client, "send_command response: %s", output)
 
     return candidates
 
