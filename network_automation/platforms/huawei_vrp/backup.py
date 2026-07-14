@@ -7,12 +7,9 @@ snapshot and download it via SFTP.
 Mirrors mikrotik_routeros/backup.py's approach (named on-device snapshot +
 SFTP GET), not a plain-text `display current-configuration` dump, so the
 downloaded artifact matches VRP's own binary/compressed startup-config
-format — observed on real hardware as `vrpcfg.zip` at `flash:/` (see
-tests/huawei_vrp/test_info.py's `display startup` / `dir` fixtures). Hence
-the '.zip' extension and `flash:/` prefix used here, consistent with the
-same prefix already used by flash.py's `delete flash:/<file>`, info.py's
-`display system file-md5 flash:/<file>`, and docs/architecture.md's own
-worked example (`client.download(files=["flash:/config.zip"], ...)`).
+format (`vrpcfg.zip` at `flash:/`). Hence the '.zip' extension and
+`flash:/` prefix, consistent with flash.py, info.py, and
+docs/architecture.md's worked example.
 
 Follows the network_automation `nauto_` prefix convention on the *device
 side only*; OperationResult metadata always exposes the caller-supplied
@@ -20,33 +17,22 @@ logical name (docs/architecture.md's platform-naming-isolation rule),
 exactly like mikrotik_routeros/backup.py.
 
 Download uses a dedicated, non-interactive-shell SFTP connection (see
-upload.py's _dedicated_sftp()), not client.conn.remote_conn_pre —
-confirmed live (2026-07-08, AR650) that sharing the SFTP channel with
-client.conn's interactive Netmiko shell session hangs indefinitely
-(docs/problems/huawei-vrp-sftp-open-failure.md's shared-transport-hang
-pitfall applies to GET, not just PUT).
+upload.py's _dedicated_sftp()), not client.conn.remote_conn_pre — sharing
+the SFTP channel with client.conn's interactive Netmiko shell session
+hangs indefinitely (docs/problems/huawei-vrp-sftp-open-failure.md's
+shared-transport-hang pitfall applies to GET, not just PUT).
 
 UNVERIFIED ON REAL HARDWARE — validate before production use:
   1. `save <filename>` semantics: whether VRP accepts the `flash:/`-
-     prefixed form used here, whether it silently repoints "next startup
-     saved-configuration file" (`display startup`) as a side effect, and
-     whether any interactive prompt beyond the [Y/N] confirmation already
-     handled by save_configuration() can appear. RESOLVED (2026-07-12,
-     third/production device, different unit than the two lab AR650s this
-     had first been exercised against): `save` returned in ~2.5s instead
-     of the usual ~9-11s and never actually created the file — the
-     follow-up SFTP GET failed with a content-free 'OSError: [Errno 2] '.
-     Root-caused live on-console (bisection over several `save
-     flash:/<path>` lengths): VRP's CLI parser hard-rejects the whole
-     command as "Unrecognized command" once the `flash:/<path>` string
-     exceeds MAX_FLASH_PATH_LENGTH (64) — not a prompt-handling gap, a
-     hard length limit. The `flash:/` prefix and `.zip` extension
-     themselves are fine; a long Nautobot device name pushed the
-     generated filename over the limit. _flash_safe_filename() now falls
-     back to a short hash when the full name would exceed it, and
+     prefixed form used here, and whether saving under an explicit
+     filename repoints "next startup saved-configuration file"
+     (`display startup`) as a side effect. Known failure mode: `save`
+     silently fails to create the file if the `flash:/<path>` string
+     exceeds MAX_FLASH_PATH_LENGTH (64) — VRP rejects the whole command
+     as "Unrecognized command". _flash_safe_filename() falls back to a
+     short hash when the full name would exceed the limit, and
      run_backup() calls _verify_backup_file_exists() right after
-     save_configuration() as a backstop in case some other, still-unknown
-     rejection reason turns up on yet another device.
+     save_configuration() as a backstop for any other rejection reason.
   2. Cleanup delete command: cleanup_old_backups() reuses flash.py's
      _delete_file(), whose `delete flash:/<filename>` + [Y/N] handling is
      already exercised by the existing upgrade() flash-cleanup path, but
@@ -70,24 +56,16 @@ BACKUP_PREFIX = "nauto_"
 BACKUP_EXTENSION = ".zip"
 
 # VRP's CLI parser hard-rejects the whole `save <path>` command
-# ("Unrecognized command found at '^' position.") if <path> exceeds a
-# device-imposed length limit — confirmed live via bisection on real
-# hardware (2026-07-12, AR650, 40-char device name): a 64-character
-# "flash:/<file>" path is accepted, 65 characters is rejected outright.
-# Confirmed on a second model (AR651, 2026-07-13) as well — kept as a
-# named constant so it's easy to revisit if a different limit turns up
-# elsewhere.
+# ("Unrecognized command found at '^' position.") once the "flash:/<file>"
+# path exceeds this length (confirmed on AR650/AR651: 64 chars accepted,
+# 65 rejected). Named constant so the limit is easy to revisit per model.
 MAX_FLASH_PATH_LENGTH = 64
 
 # Retries for the flash directory read inside _verify_backup_file_exists()
-# (the check that runs right after `save`), on a Netmiko ReadTimeout only.
-# Confirmed live (2026-07-12, a fourth device): even after
-# save_configuration()'s explicit prompt wait returns, the device can
-# still be finishing its own asynchronous "please wait" tail from `save`
-# and briefly not respond to the very next command — netmiko's internal
-# command-echo check (a fixed ~10s sub-timeout, independent of the
-# read_timeout we pass) times out with "Pattern not detected: 'dir' in
-# output" before the device is actually ready again.
+# (right after `save`), on a Netmiko ReadTimeout only. The device can still
+# be finishing `save`'s asynchronous "please wait" tail and briefly not
+# respond, tripping netmiko's ~10s command-echo sub-timeout before it's
+# actually ready.
 _FLASH_INFO_RETRIES = 3
 _FLASH_INFO_RETRY_DELAY_SECONDS = 2
 
@@ -148,30 +126,16 @@ def _verify_backup_file_exists(client, *, filename: str):
     Confirm `filename` (bare name, no 'flash:/' prefix) exists on flash
     right after save_configuration() — before attempting the SFTP GET.
 
-    Added after a live failure (2026-07-12, third device, different unit
-    than the two lab units save_configuration() had first been exercised
-    against): `save` returned in ~2.5s (vs. ~9-11s on the lab units) and
-    the file was never actually created, so the next step (SFTP GET)
-    failed with a bare 'OSError: [Errno 2] ' — this device's SFTP server
-    returns SSH_FX_NO_SUCH_FILE with an empty text field, so paramiko's
-    exception carries no useful detail on its own (same empty-text-field
-    pattern as docs/problems/huawei-vrp-sftp-open-failure.md). That
-    specific failure was root-caused to a VRP command-length limit (see
-    MAX_FLASH_PATH_LENGTH / _flash_safe_filename()) and is now avoided
-    before `save` even runs — this check stays as a backstop in case
-    `save` fails to create the file for some other, still-unknown reason
-    on a future device, turning that into a clear, actionable error
-    instead of a cryptic SFTP failure.
+    Backstop for `save` silently failing to create the file (e.g. the
+    MAX_FLASH_PATH_LENGTH limit): without this check, the failure only
+    surfaces as a cryptic 'OSError: [Errno 2] ' from the SFTP GET, since
+    this device's SFTP server returns SSH_FX_NO_SUCH_FILE with no text.
 
     Retries the flash directory read (see _FLASH_INFO_RETRIES) on a
-    Netmiko ReadTimeout only: observed live (2026-07-12, a fourth device)
-    that the device can still be settling from `save`'s own asynchronous
-    tail right when this runs, briefly failing netmiko's command-echo
-    check for the very next command with "Pattern not detected: 'dir' in
-    output" — a different failure mode than the file genuinely missing,
-    and one a short retry resolves without masking a real absence (if
-    `save` truly never created the file, no number of retries changes
-    that).
+    Netmiko ReadTimeout only: the device can still be settling from
+    `save`'s asynchronous tail, briefly failing netmiko's command-echo
+    check with "Pattern not detected: 'dir' in output" — a transient
+    condition, not the file genuinely missing.
 
     - no connect/disconnect
     - raises RuntimeError if the file is missing, or if the flash

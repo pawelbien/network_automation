@@ -15,12 +15,8 @@ from network_automation.platforms.huawei_vrp.info import get_flash_info
 class SftpServerDisabledError(RuntimeError):
     """
     Raised by _ensure_sftp_server_enabled() when a device's SFTP server
-    isn't enabled. Kept as a distinct type (not just RuntimeError) so
-    callers with their own retry loops (e.g. upload_with_retry()) can
-    special-case it and fail immediately, the same way they already do
-    for FileNotFoundError — no amount of retrying an SSH connection
-    changes a missing device config, so retrying only adds noise and
-    delay.
+    isn't enabled. Distinct type so callers (e.g. upload_with_retry()) can
+    fail immediately instead of retrying, same as FileNotFoundError.
     """
 
 
@@ -29,12 +25,9 @@ class SftpServerDisabledError(RuntimeError):
 # (upload_timeout) are exposed on HuaweiVRP.
 _RETRY_DELAY_SECONDS = 1
 
-# How often, at most, the sftp.put() progress callback (see
-# _make_progress_callback()) is allowed to log/ping while a long transfer
-# runs. Well under this device's console idle-timeout (observed to fire
-# during a real ~15-minute firmware transfer) — an SSH-transport-level
-# keepalive (client.device's keepalive=30) does NOT reset it, since it
-# never touches the CLI application layer.
+# Max interval between progress-callback log/keepalive pings during a
+# transfer (see _make_progress_callback()). Must stay under the device's
+# console idle-timeout, which the SSH-transport keepalive does not reset.
 _CLI_KEEPALIVE_INTERVAL_SECONDS = 60
 
 
@@ -90,22 +83,13 @@ def _sftp_server_enabled(display_output: str) -> bool:
 
 def _ensure_sftp_server_enabled(client):
     """
-    Fail fast, with a clear and actionable error, if this device's SFTP
-    server isn't enabled — before attempting a dedicated SFTP connection
-    at all.
+    Fail fast if the device's SFTP server isn't enabled, before attempting
+    a dedicated SFTP connection.
 
-    Observed live (2026-07-14, a device never previously exercised by
-    this job): SSH transport + auth succeed normally (client.conn's
-    interactive session works fine for `dir`/`save`/etc.), but
-    ssh.open_sftp() fails immediately with a bare 'Channel closed.' —
-    paramiko debug logs show the channel opening and then an EOF within
-    ~13ms, before any SFTP-specific exchange. All 3 upload_with_retry()
-    attempts failed identically (not a transient blip). Root-caused via
-    `display current-configuration | include sftp` returning nothing on
-    the device: `sftp server enable` (a standard VRP command, stable
-    across the AR/S/NE families — though only verified live against
-    AR650 units by this job so far) was never configured. Enabling it in
-    system-view resolves this; no amount of retrying in our code can.
+    When `sftp server enable` is not configured, ssh.open_sftp() fails
+    immediately with a bare 'Channel closed.' instead of a useful error —
+    checking `display current-configuration | include sftp` first gives a
+    clear, actionable error instead of 3 identical failed retries.
 
     - no connect/disconnect (uses client.conn, already connected)
     - raises RuntimeError if the check itself reveals SFTP isn't enabled
@@ -125,23 +109,19 @@ def _ensure_sftp_server_enabled(client):
 @contextmanager
 def _dedicated_sftp(client, *, timeout: float | None = None):
     """
-    Open SFTP on a brand-new, dedicated SSH connection with no
-    interactive shell channel — never client.conn's interactive CLI
-    session, and not a second Netmiko session either (see
-    _connect_dedicated()).
+    Open SFTP on a brand-new, dedicated SSH connection with no interactive
+    shell channel — never client.conn's interactive CLI session, and not a
+    second Netmiko session either (see _connect_dedicated()).
 
-    Also issues one warm-up sftp.normalize(".") before yielding: this
-    device's SFTP server rejects an OPEN-for-write that's the very first
-    request on a freshly opened channel with an empty SSH_FX_FAILURE —
-    one prior read-only request on the same channel is enough to make
-    every following write succeed. See
-    docs/problems/huawei-vrp-sftp-open-failure.md for how both this and
-    the shared-transport-hang issue were found.
+    Issues one warm-up sftp.normalize(".") before yielding: this device's
+    SFTP server rejects an OPEN-for-write that's the first request on a
+    freshly opened channel with an empty SSH_FX_FAILURE; one prior
+    read-only request makes every following write succeed. See
+    docs/problems/huawei-vrp-sftp-open-failure.md.
 
-    Checks _ensure_sftp_server_enabled() first — see that function's
-    docstring for why: without it, a device with SFTP disabled fails
-    with a bare, unhelpful 'Channel closed.' after 3 full retry attempts
-    instead of one clear, immediate error.
+    Calls _ensure_sftp_server_enabled() first so a disabled SFTP server
+    fails with a clear error instead of a bare 'Channel closed.' after 3
+    retries.
 
     Closes the SFTP client and the dedicated connection on exit, even on
     exception.
@@ -168,33 +148,19 @@ def _dedicated_sftp(client, *, timeout: float | None = None):
 
 def _make_progress_callback(client):
     """
-    Build a paramiko sftp.put() progress callback: paramiko invokes it
-    synchronously, on the same thread that called put(), on every chunk
-    (tens of times per second for a large file) — throttled here to at
-    most once every _CLI_KEEPALIVE_INTERVAL_SECONDS.
+    Build a paramiko sftp.put() progress callback, throttled to at most
+    once every _CLI_KEEPALIVE_INTERVAL_SECONDS.
 
-    Deliberately NOT a background thread (previous implementation): a
-    prior version ran this on a separate threading.Thread, and its
-    client.logger.info() calls never showed up in the Nautobot job log —
-    Nautobot's Job.logger appears to be scoped to whichever thread
-    actually runs Job.run() (Celery's task thread), so log calls from an
-    independently spawned thread are silently lost. Running on put()'s
-    own calling thread (the same one running Job.run()) avoids that
-    entirely, as a side effect of using paramiko's own progress hook
-    instead of polling from the side.
+    Runs on put()'s own calling thread, not a background thread: Nautobot's
+    Job.logger is scoped to the thread running Job.run(), so log calls from
+    an independently spawned thread are silently dropped.
 
-    Each call also nudges client.conn's interactive CLI session so its
-    console idle-timeout doesn't fire while sftp.put() blocks this thread
-    for minutes at a time — best-effort: if client.conn is already dead,
-    logged at DEBUG only and swallowed, since the real error surfaces
-    wherever client.conn is next actually used for something that matters
-    (e.g. verify_remote_file's 'dir').
+    Each call also nudges client.conn so its console idle-timeout doesn't
+    fire while sftp.put() blocks for minutes — best-effort, swallowed if
+    client.conn is already dead.
 
-    The progress log itself goes through client._safe_log_info()
-    (BaseClient) rather than client.logger.info() directly — same
-    identical risk as wait_for_reconnect()'s heartbeat: an upload that's
-    actually succeeding must never be aborted by a transient failure in
-    the logger call itself.
+    Logs via client._safe_log_info() (BaseClient) so a transient logger
+    failure can never abort an otherwise-succeeding upload.
     """
     state = {"last": time.monotonic(), "start": time.monotonic()}
 

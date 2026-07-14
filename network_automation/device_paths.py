@@ -5,11 +5,11 @@ Shared helpers for building on-device file names that stay within a
 platform's own command-length limit.
 
 Some platform CLIs hard-reject a command once the file name/path argument
-exceeds a certain length (confirmed live on Huawei VRP: 64 chars for
-`flash:/<file>` in `save`, see huawei_vrp/backup.py's
-MAX_FLASH_PATH_LENGTH). Each platform module owns its own named limit
-constant and passes it in here — this module only holds the shared
-fallback mechanism, not the limit values themselves.
+exceeds a certain length (e.g. Huawei VRP: 64 chars for `flash:/<file>` in
+`save`, see huawei_vrp/backup.py's MAX_FLASH_PATH_LENGTH). Each platform
+module owns its own named limit constant and passes it in here — this
+module only holds the shared fallback mechanism, not the limit values
+themselves.
 """
 
 import hashlib

@@ -22,12 +22,11 @@ def download_files(
     Uses a dedicated, non-interactive-shell SFTP connection (see
     upload.py's _dedicated_sftp()), not client.conn.remote_conn_pre —
     sharing the SFTP channel with client.conn's interactive Netmiko shell
-    session hangs indefinitely on this hardware
-    (docs/problems/huawei-vrp-sftp-open-failure.md's shared-transport-hang
-    pitfall; confirmed live 2026-07-08 for GET via backup.py, same fix
-    applied here). client.conn gets a periodic no-op keepalive+progress-log
-    for the duration of the transfer, driven by sftp.get()'s own progress
-    callback — see upload.py's _make_progress_callback().
+    session hangs indefinitely on this hardware (see
+    docs/problems/huawei-vrp-sftp-open-failure.md). client.conn gets a
+    periodic no-op keepalive+progress-log for the duration of the transfer,
+    driven by sftp.get()'s own progress callback — see upload.py's
+    _make_progress_callback().
 
     - no connect/disconnect (of client.conn — this opens and closes its
       own separate SFTP connection internally, every call)

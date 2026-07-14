@@ -262,35 +262,22 @@ def save_configuration(client, filename: str | None = None):
     VRP's "y" confirmation is followed by an asynchronous "It will take
     several minutes to save configuration file, please wait..." notice
     that can land *after* send_command_timing()'s idle-time heuristic has
-    already decided the command is done (observed live: the notice arrived
-    ~0.9s after the 2.0s idle window closed, well before the save itself
-    was actually finished). The leftover text then sits unread until the
-    *next* command's send_command() call, whose default auto_find_prompt()
-    probe reads it and mistakes it for the current prompt — producing a
-    search pattern that never matches again and hanging that next command
-    for its full read_timeout.
+    already decided the command is done. The leftover text then sits
+    unread until the *next* command's send_command() call, whose default
+    auto_find_prompt() probe reads it and mistakes it for the current
+    prompt — producing a search pattern that never matches again and
+    hanging that next command for its full read_timeout.
 
     Confirming with an explicit expect_string instead waits for the real
-    prompt to reappear (bounded by read_timeout, matching VRP's own
-    "several minutes" warning) and — because auto_find_prompt() is only
-    invoked when expect_string is None — never sends that risky probe in
-    the first place, so nothing is left dangling for the next command to
-    misread.
+    prompt to reappear (bounded by read_timeout) and never triggers
+    auto_find_prompt() in the first place, so nothing is left dangling.
 
-    The *initial* `save`/`save <filename>` send used send_command_timing()
-    (the same blind idle-time heuristic) until a live failure (2026-07-12,
-    a fourth device): the response came back completely empty — the
-    device's "(y/n)" prompt hadn't arrived before send_command_timing()'s
-    idle window closed, so this function saw no "y/n" in the (empty)
-    output, assumed no confirmation was needed, and returned immediately
-    — leaving the device sitting at an unanswered confirmation prompt.
-    Every subsequent command then landed on that stuck prompt instead of a
-    real command line, failing repeatedly with no way to self-resolve
-    (confirmed live: 3 retries of the next command over ~35s, all
-    identical failures) since nothing had actually gone wrong that a
-    retry could wait out. Now uses the same send_command()+expect_string
-    approach as reboot() for this same reason — see that method's
-    docstring — for the initial send too, not just the "y" confirmation.
+    The initial `save`/`save <filename>` send also uses send_command()+
+    expect_string rather than send_command_timing(), for the same reason:
+    the idle-time heuristic can return before the "(y/n)" prompt arrives,
+    which is read as "no confirmation needed" and leaves the device stuck
+    at an unanswered prompt — failing every subsequent command. Same
+    approach as reboot() — see that method's docstring.
 
     - no connect/disconnect
     """

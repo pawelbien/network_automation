@@ -14,7 +14,7 @@ _FIRMWARE_RE = re.compile(r'^V(\d+)R(\d+)C\d+SPC(\d+)$', re.IGNORECASE)
 # the SPH<branch>[<letter><number>] substring rather than anchoring the whole
 # string like _FIRMWARE_RE does. The trailing <letter><number> sub-build is
 # optional: some release trains report a plain "SPH<branch>" with no letter
-# suffix at all (e.g. "SPH221"), confirmed live against a real AR650 device.
+# suffix (e.g. "SPH221").
 _PATCH_RE = re.compile(r'SPH(\d+)(?:([A-Za-z])(\d+))?', re.IGNORECASE)
 
 OPERATION_NONE = "NONE"

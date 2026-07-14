@@ -93,19 +93,12 @@ class BaseClient:
         Best-effort self.logger.info(): swallows any exception the logger
         itself raises.
 
-        Nautobot's Job logger (nautobot/core/celery/log.py's logging.Handler)
-        runs a DB query (JobResult.objects.get(id=record.task_id)) on every
-        single call, with no try/except of its own — confirmed live
-        (2026-07-12): a transient 'django.db.utils.OperationalError: (2013,
-        Lost connection to MySQL server during query)' there took down an
-        otherwise-successful upgrade (the device had already rebooted and was
-        reconnecting fine) with a misleading TypeError several layers up in
-        Celery's own exception handling — and no matching JobLogEntry at all,
-        since the failure happened inside the very logger call that would
-        have written one. Status/heartbeat logging is an observability
-        concern and must never be able to abort an operation that is itself
-        succeeding — used by wait_for_reconnect() implementations and
-        long-transfer progress callbacks for exactly that reason.
+        Nautobot's Job logger runs a DB query on every call, with no
+        try/except of its own — a transient DB error there can take down an
+        otherwise-successful operation. Status/heartbeat logging is an
+        observability concern and must never abort an operation that is
+        itself succeeding — used by wait_for_reconnect() implementations and
+        long-transfer progress callbacks for that reason.
         """
         try:
             self.logger.info(msg, *args)
