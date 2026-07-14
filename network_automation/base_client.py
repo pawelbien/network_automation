@@ -9,29 +9,17 @@ from paramiko.ssh_exception import SSHException
 
 def _classify_connect_failure(exc: Exception) -> str:
     """
-    Best-effort, human-readable classification of why a connection attempt
-    failed, for a log message closer to the truth than a blanket "may be
-    offline". Netmiko's own exceptions were found (empirically, against a
-    real legacy-SSH Huawei VRP device) to carry the underlying paramiko/
-    socket error via __context__, not __cause__ - both are checked here.
-    Never raises; falls back to the original "may be offline" wording when
-    nothing more specific is found in the chain.
+    Classifies why a connection attempt failed, walking __context__ and
+    __cause__ (Netmiko's own exceptions carry the underlying paramiko/
+    socket error via __context__, not __cause__). Never raises; falls back
+    to "may be offline" when nothing more specific is found.
 
-    A "Connection reset"/"Connection refused" means something on the other
-    end actively responded and rejected the connection - i.e. the device
-    IS reachable - which is a meaningfully different situation from a
-    genuine timeout (no response of any kind, e.g. a truly offline host).
-
-    A bare paramiko SSHException that is neither of those (observed
-    empirically as SSHException("Invalid key") when a legacy VRP device
-    rejects a public key's signature algorithm during auth) is *more*
-    diagnostic than a reset/refused, not less - it means the device
-    responded and completed enough of the SSH/auth exchange to actively
-    reject this specific attempt, rather than merely tearing down the TCP
-    session afterwards. Checked after the reset/refused text match since
-    "Error reading SSH protocol banner...Connection reset by peer" is
-    itself raised as an SSHException and must be classified by that more
-    specific wording first.
+    "Connection reset"/"refused" means the device actively responded and
+    rejected the connection - reachable, unlike a genuine no-response
+    timeout. A bare paramiko SSHException (e.g. "Invalid key", raised when
+    a device rejects a public key's signature algorithm) is checked last
+    since a reset/refused is itself raised as an SSHException and must be
+    matched by the more specific wording first.
     """
     node = exc
     seen = set()
@@ -54,11 +42,8 @@ def _classify_connect_failure(exc: Exception) -> str:
                 "or wrong port)."
             )
 
-        # NetmikoTimeoutException/NetmikoAuthenticationException are
-        # themselves SSHException subclasses (Netmiko's own hierarchy) -
-        # excluded here so this branch only fires for the *real* underlying
-        # paramiko exception found deeper in the chain, not Netmiko's own
-        # outer wrapper.
+        # Netmiko's own exceptions subclass SSHException too - excluded so
+        # this only fires for the real underlying paramiko exception.
         if isinstance(node, SSHException) and not isinstance(
             node, (NetmikoTimeoutException, NetmikoAuthenticationException)
         ):
@@ -73,6 +58,30 @@ def _classify_connect_failure(exc: Exception) -> str:
         node = node.__context__ or node.__cause__
 
     return "Connection timeout. Device may be offline."
+
+
+def _summarize_reasons(reasons_by_attempt: list[tuple[int, str]]) -> str:
+    """
+    Reduces per-attempt classified reasons to one summary string. Different
+    attempts can fail for different reasons, so the last attempt's reason
+    alone isn't necessarily the most informative one - all distinct reasons
+    are kept, labeled by attempt number, instead of only the last.
+    """
+    unique_reasons = []
+    seen = set()
+    for _, reason in reasons_by_attempt:
+        if reason not in seen:
+            seen.add(reason)
+            unique_reasons.append(reason)
+
+    if not unique_reasons:
+        return "Connection timeout. Device may be offline."
+    if len(unique_reasons) == 1:
+        return unique_reasons[0]
+
+    return " | ".join(
+        f"attempt {n}: {reason}" for n, reason in reasons_by_attempt
+    )
 
 
 class BaseClient:
@@ -116,7 +125,7 @@ class BaseClient:
         """
         attempt = 1
         last_exc = None
-        last_reason = "Connection timeout. Device may be offline."
+        reasons_by_attempt = []
 
         while attempt <= self.connect_retries:
             self.logger.info(
@@ -130,8 +139,9 @@ class BaseClient:
 
             except NetmikoTimeoutException as exc:
                 last_exc = exc
-                last_reason = _classify_connect_failure(exc)
-                self.logger.warning(last_reason)
+                reason = _classify_connect_failure(exc)
+                reasons_by_attempt.append((attempt, reason))
+                self.logger.warning(reason)
 
             except NetmikoAuthenticationException:
                 self.logger.error("Authentication failed.")
@@ -140,7 +150,7 @@ class BaseClient:
             except Exception as exc:
                 self.logger.error(f"Unexpected connection error: {exc}")
                 last_exc = exc
-                last_reason = _classify_connect_failure(exc)
+                reasons_by_attempt.append((attempt, _classify_connect_failure(exc)))
 
             if attempt < self.connect_retries:
                 self.logger.info(
@@ -150,15 +160,12 @@ class BaseClient:
 
             attempt += 1
 
-        # Retries exhausted. Always surface NetmikoTimeoutException (existing
-        # callers branch on this type), but with the classified reason from
-        # the last attempt in the message (not just "may be offline" for
-        # every failure mode) and the real last exception chained as
-        # __cause__ instead of discarded, so a caller inspecting str(exc) or
-        # exc.__cause__ can tell a "device actively rejected us" failure
-        # apart from a genuine "no response at all" timeout.
+        # Always surface NetmikoTimeoutException (existing callers branch on
+        # this type), with the classified reason(s) in the message and the
+        # real last exception chained as __cause__ instead of discarded.
         raise NetmikoTimeoutException(
-            f"Unable to connect after {self.connect_retries} attempts. {last_reason}"
+            f"Unable to connect after {self.connect_retries} attempts. "
+            f"{_summarize_reasons(reasons_by_attempt)}"
         ) from last_exc
 
     def disconnect(self):

@@ -37,12 +37,6 @@ def test_safe_log_info_calls_through_on_success():
 
 # ---------------------------------------------------------------------------
 # _classify_connect_failure
-#
-# Empirically motivated (2026-07-14, real legacy-SSH Huawei VRP AR651):
-# Netmiko's own exceptions carry the underlying paramiko/socket error via
-# __context__, not __cause__, so both are checked. A "Connection reset"/
-# "Connection refused" means the device actively responded and rejected the
-# connection - meaningfully different from a genuine "no response" timeout.
 # ---------------------------------------------------------------------------
 
 def test_classify_connect_failure_reset_via_context():
@@ -65,9 +59,8 @@ def test_classify_connect_failure_refused_via_context():
 
 
 def test_classify_connect_failure_matches_on_message_text_too():
-    # Observed against a real device: the reset shows up as plain text
-    # inside an SSHException message, not as a ConnectionResetError
-    # instance directly.
+    # The reset can show up as plain text inside an SSHException message,
+    # not as a ConnectionResetError instance.
     exc = NetmikoTimeoutException(
         "Error reading SSH protocol banner[Errno 54] Connection reset by peer"
     )
@@ -98,13 +91,9 @@ def test_classify_connect_failure_falls_back_to_offline_wording():
 
 
 def test_classify_connect_failure_generic_sshexception_invalid_key():
-    # Observed live in production (2026-07-14, ibproha-lab-r1, first of the
-    # two connect_retries attempts): a legacy VRP device rejecting a public
-    # key's signature algorithm surfaces as Netmiko wrapping a bare
-    # SSHException("Invalid key") - not a ConnectionResetError/RefusedError
-    # at all. This is *more* diagnostic than a reset (the device completed
-    # enough of the exchange to actively reject the key), so it must not
-    # fall through to the generic "may be offline" wording.
+    # A rejected pubkey signature algorithm surfaces as Netmiko wrapping a
+    # bare SSHException("Invalid key") - not Connection*Error - and must
+    # not fall through to the generic "may be offline" wording.
     outer = NetmikoTimeoutException(
         "A paramiko SSHException occurred during connection creation: Invalid key"
     )
@@ -173,12 +162,32 @@ def test_connect_final_exception_preserves_offline_wording_for_genuine_timeout(m
     assert exc_info.value.__cause__ is timeout_exc
 
 
-def test_connect_two_attempt_sequence_matches_production_log(monkeypatch):
-    # Reproduces the exact sequence observed live (2026-07-14,
-    # ibproha-lab-r1): attempt 1 fails with "Invalid key" (SSHException via
-    # __context__), attempt 2 fails with a plain reset. The FINAL exception
-    # (raised after both attempts) must reflect attempt 2's classification
-    # (the last attempt's reason), not attempt 1's.
+def test_connect_final_exception_stays_single_reason_when_attempts_agree(monkeypatch):
+    timeout_exc = NetmikoTimeoutException("Unable to connect to port 22")
+
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(side_effect=timeout_exc),
+    )
+
+    client = BaseClient(connect_retries=2, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    with pytest.raises(NetmikoTimeoutException) as exc_info:
+        client.connect()
+
+    message = str(exc_info.value).lower()
+    assert "attempt 1" not in message
+    assert "attempt 2" not in message
+    assert message.count("may be offline") == 1
+
+
+def test_connect_final_exception_includes_all_distinct_attempt_reasons(monkeypatch):
+    # Different attempts can fail for different reasons (e.g. a rejected
+    # pubkey algorithm on attempt 1, a connection reset on attempt 2) - the
+    # final exception must surface all distinct reasons, not just the
+    # last attempt's.
     invalid_key_exc = NetmikoTimeoutException(
         "A paramiko SSHException occurred during connection creation: Invalid key"
     )
@@ -199,7 +208,11 @@ def test_connect_two_attempt_sequence_matches_production_log(monkeypatch):
     with pytest.raises(NetmikoTimeoutException) as exc_info:
         client.connect()
 
-    assert "reset by peer" in str(exc_info.value).lower()
+    message = str(exc_info.value).lower()
+    assert "invalid key" in message
+    assert "reset by peer" in message
+    assert "attempt 1" in message
+    assert "attempt 2" in message
     assert exc_info.value.__cause__ is reset_exc
 
     logged_warnings = [
