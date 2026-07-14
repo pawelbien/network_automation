@@ -67,7 +67,11 @@ successfully every time.
 **Takeaway**: when working with older network devices that require
 RSA/SHA-1, pin an upper bound on the paramiko version
 (`paramiko<5.0.0`) — without an explicit pin, a freshly provisioned
-environment can silently resolve to an incompatible version.
+environment can silently resolve to an incompatible version. For how
+this same `ssh-rsa`-only requirement surfaces through a plain Netmiko
+connection (not SFTP) — as a `NetmikoTimeoutException`, not a clean auth
+failure — see
+[huawei-vrp-legacy-ssh-pubkey-algorithm.md](huawei-vrp-legacy-ssh-pubkey-algorithm.md).
 
 ## Problem #3: SFTP sharing a transport with an interactive shell channel hangs
 

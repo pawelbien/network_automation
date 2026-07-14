@@ -35,6 +35,7 @@ class MikrotikRouterOS(BaseClient):
         connect_delay=2,
         reconnect_timeout=300,
         reconnect_delay=10,
+        disabled_algorithms: dict | None = None,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -51,6 +52,10 @@ class MikrotikRouterOS(BaseClient):
                              TimeoutError (default 300).
         reconnect_delay    — polling interval in seconds during reconnect wait
                              (default 10).
+        disabled_algorithms — passed directly to Paramiko; use to re-enable
+                             legacy algorithms on older devices that don't
+                             support modern SSH pubkey signature algorithms.
+                             Example: {"pubkeys": ["rsa-sha2-512", "rsa-sha2-256"]}.
         """
         # Initialize shared BaseClient state (context, logger, retry config)
         super().__init__(
@@ -69,6 +74,7 @@ class MikrotikRouterOS(BaseClient):
             "passphrase": passphrase,
             "use_keys": use_keys,
             "port": port,
+            "disabled_algorithms": disabled_algorithms,
         }
 
         # Device and workflow metadata
