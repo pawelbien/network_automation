@@ -118,11 +118,7 @@ def _ensure_sftp_server_enabled(client):
 
     if not _sftp_server_enabled(output):
         raise SftpServerDisabledError(
-            "SFTP server is not enabled on this device (no 'sftp server "
-            "enable' in the running configuration) — enable it via "
-            "'system-view' -> 'sftp server enable' on the device. This is "
-            "a device configuration gap, not something upload/download "
-            "retries can fix."
+            "SFTP server is not enabled on this device"
         )
 
 
