@@ -413,6 +413,31 @@ def get_info(client):
     return {"units": units}
 
 
+def extract_discovery_facts(units):
+    """
+    Reduce get_info()'s unit list to the single-unit CMDB facts Device
+    Discovery needs: serial number and base firmware version.
+
+    Picks the 'master' unit (falls back to the first unit if no unit is
+    marked master) — v1 has no multi-chassis support, so any standby/slave
+    units in a stack are ignored.
+
+    software_version is unit["software_version"] (e.g. "V300R024C00SPC100"),
+    which is already patch-free: get_info() never runs 'display
+    patch-information', and Nautobot's SoftwareVersion catalog for Huawei
+    VRP only holds base firmware versions (patches are a separate
+    SoftwareImageFile layer, not their own SoftwareVersion row) — so this
+    value is directly comparable to SoftwareVersion.version.
+
+    Returns dict: {"serial": str, "software_version": str}.
+    """
+    unit = next((u for u in units if u.get("role") == "master"), units[0])
+    return {
+        "serial": unit["esn"],
+        "software_version": unit["software_version"],
+    }
+
+
 def read_info(client, *, return_result: bool = False):
     """
     Read device information as a full workflow operation (connect → collect → disconnect).

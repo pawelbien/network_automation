@@ -5,11 +5,13 @@ from unittest.mock import MagicMock
 from network_automation.platforms.mikrotik_routeros.info import (
     normalize_version,
     is_newer_version,
+    strip_version_suffix,
     _get_software_info,
     _get_hardware_info,
     _get_system_identity,
     get_info,
     read_info,
+    extract_discovery_facts,
 )
 
 
@@ -52,6 +54,12 @@ def test_is_newer_version():
     assert is_newer_version("7.13.5", "7.14") is True
     assert is_newer_version("7.14", "7.14") is False
     assert is_newer_version("7.15", "7.14") is False
+
+
+def test_strip_version_suffix():
+    assert strip_version_suffix("7.13.5 (stable)") == "7.13.5"
+    assert strip_version_suffix("7.14") == "7.14"
+    assert strip_version_suffix("  7.14 (long-term)  ") == "7.14"
 
 
 # ---------- get_info ----------
@@ -292,3 +300,31 @@ def test_read_info_returns_result(monkeypatch, mikrotik_client, fake_conn):
     assert unit["name"] == "RouterOS-Device"
     assert unit["serial"] == "HG6099981S2"
     assert unit["model"] == "CCR2004-16G-2S+"
+
+
+# ---------- extract_discovery_facts ----------
+
+def test_extract_discovery_facts_with_hardware(monkeypatch, mikrotik_client, fake_conn):
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
+    mikrotik_client.conn = fake_conn
+    fake_conn.send_command.side_effect = [_SOFTWARE_INFO, _IDENTITY, _ROUTERBOARD_INFO]
+
+    facts = extract_discovery_facts(read_info(mikrotik_client)["units"])
+
+    assert facts == {"serial": "HG6099981S2", "software_version": "7.13.5"}
+
+
+def test_extract_discovery_facts_chr_missing_serial(monkeypatch, mikrotik_client, fake_conn):
+    monkeypatch.setattr(mikrotik_client, "connect", lambda: None)
+    monkeypatch.setattr(mikrotik_client, "disconnect", lambda: None)
+    mikrotik_client.conn = fake_conn
+    fake_conn.send_command.side_effect = [
+        _SOFTWARE_INFO,
+        _IDENTITY,
+        "bad command name routerboard (line 1 column 9)",
+    ]
+
+    facts = extract_discovery_facts(read_info(mikrotik_client)["units"])
+
+    assert facts == {"serial": None, "software_version": "7.13.5"}

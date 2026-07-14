@@ -6,7 +6,7 @@ from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.mikrotik_routeros.backup import run_backup
 from network_automation.platforms.mikrotik_routeros.download import run_download
-from network_automation.platforms.mikrotik_routeros.info import read_info
+from network_automation.platforms.mikrotik_routeros.info import read_info, extract_discovery_facts
 from network_automation.platforms.mikrotik_routeros.run import run as run_helper
 from network_automation.platforms.mikrotik_routeros.upgrade import upgrade as upgrade_helper
 from network_automation.platforms.mikrotik_routeros.bootloader import bootloader_upgrade
@@ -95,6 +95,18 @@ class MikrotikRouterOS(BaseClient):
     def get_info(self, *, return_result: bool = False):
         """Read device info and populate arch/current_version on the client."""
         return read_info(self, return_result=return_result)
+
+    def get_discovery_facts(self, *, return_result: bool = False):
+        """
+        Read serial number and software version for CMDB sync (Device
+        Discovery). Reuses get_info()'s connect/disconnect lifecycle.
+        """
+        result = self.get_info(return_result=True)
+        facts = extract_discovery_facts(result.metadata["units"])
+        if return_result:
+            result.metadata.update(facts)
+            return result
+        return facts
 
     # -------------------------------------------------------
     # Backup

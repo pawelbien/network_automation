@@ -127,6 +127,17 @@ def is_newer_version(current_version, new_version):
     return normalize_version(new_version) > normalize_version(current_version)
 
 
+def strip_version_suffix(v):
+    """
+    Strip RouterOS's trailing channel annotation, e.g. "7.13.5 (stable)" ->
+    "7.13.5". Nautobot's SoftwareVersion.version catalog entries are plain
+    version strings with no channel suffix, so this normalization is needed
+    before an exact-string catalog match (unlike is_newer_version(), which
+    only ever compares normalized tuples).
+    """
+    return v.strip().split(" ", 1)[0]
+
+
 def get_info(client):
     """
     Collect system information and return a unified unit structure.
@@ -178,6 +189,26 @@ def get_info(client):
         pass  # CHR: RouterBOARD not available
 
     return {"units": [unit]}
+
+
+def extract_discovery_facts(units):
+    """
+    Reduce get_info()'s unit list to the single-unit CMDB facts Device
+    Discovery needs: serial number and software version.
+
+    Mirrors huawei_vrp.info.extract_discovery_facts(); Mikrotik has no
+    stacking concept in this library so always uses units[0]. serial stays
+    None on CHR (RouterBOARD not available), same as get_info() already
+    reports. software_version is normalized with strip_version_suffix() so
+    it exact-matches SoftwareVersion.version entries like "7.21.4".
+
+    Returns dict: {"serial": str | None, "software_version": str}.
+    """
+    unit = units[0]
+    return {
+        "serial": unit["serial"],
+        "software_version": strip_version_suffix(unit["version"]),
+    }
 
 
 def read_info(client, *, return_result: bool = False):

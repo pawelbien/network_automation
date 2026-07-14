@@ -11,7 +11,7 @@ from network_automation.context import ExecutionContext
 from network_automation.platforms.huawei_vrp.download import run_download
 from network_automation.platforms.huawei_vrp.upload import run_upload
 from network_automation.platforms.huawei_vrp.backup import run_backup
-from network_automation.platforms.huawei_vrp.info import read_info
+from network_automation.platforms.huawei_vrp.info import read_info, extract_discovery_facts
 from network_automation.platforms.huawei_vrp.run import run as run_helper
 from network_automation.platforms.huawei_vrp.upgrade import upgrade as upgrade_helper
 from network_automation.platforms.huawei_vrp.debug_log import debug_log
@@ -176,6 +176,18 @@ class HuaweiVRP(BaseClient):
     def get_info(self, *, return_result: bool = False):
         """Read device info (version, ESN, startup config) for all stack units."""
         return read_info(self, return_result=return_result)
+
+    def get_discovery_facts(self, *, return_result: bool = False):
+        """
+        Read serial number and base firmware version for CMDB sync (Device
+        Discovery). Reuses get_info()'s connect/disconnect lifecycle.
+        """
+        result = self.get_info(return_result=True)
+        facts = extract_discovery_facts(result.metadata["units"])
+        if return_result:
+            result.metadata.update(facts)
+            return result
+        return facts
 
     def run(self, commands, *, return_result: bool = False):
         """Execute one command (str) or a list of commands on the device."""

@@ -16,6 +16,7 @@ from network_automation.platforms.huawei_vrp.info import (
     get_file_md5,
     get_flash_info,
     read_info,
+    extract_discovery_facts,
 )
 from network_automation.results import OperationResult
 
@@ -551,3 +552,30 @@ def test_read_info_returns_operation_result(monkeypatch, huawei_client):
     assert result.operation == "info"
     assert "units" in result.metadata
     assert result.metadata["units"][0]["model"] == "AR651"
+
+
+# ---------------------------------------------------------------------------
+# extract_discovery_facts
+# ---------------------------------------------------------------------------
+
+def test_extract_discovery_facts_router(huawei_client):
+    huawei_client.conn = _fake_conn(
+        DISPLAY_VERSION_ROUTER, DISPLAY_ESN_ROUTER, DISPLAY_STARTUP_ROUTER
+    )
+
+    facts = extract_discovery_facts(get_info(huawei_client)["units"])
+
+    assert facts == {
+        "serial": "2S5001048324A0014851",
+        "software_version": "V300R024C00SPC100",
+    }
+
+
+def test_extract_discovery_facts_stack_uses_master_unit(huawei_client):
+    huawei_client.conn = _fake_conn(
+        DISPLAY_VERSION_STACK, DISPLAY_ESN_STACK, DISPLAY_STARTUP_STACK
+    )
+
+    facts = extract_discovery_facts(get_info(huawei_client)["units"])
+
+    assert facts["serial"] == "6R23C0039583"
