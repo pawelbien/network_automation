@@ -16,7 +16,15 @@ def _parse_version(output):
     Parse 'display version' output.
 
     Returns list of partial unit dicts with keys:
-    id, role, model, vrp_version, software_version, uptime_raw.
+    id, role, model, vrp_version, software_version, software_family, uptime_raw.
+
+    software_family (e.g. "AR650") is the platform-family token that
+    prefixes the version inside the parens, e.g. "(AR650 V300R024C00SPC100)"
+    — distinct from `model`, which is the exact chassis SKU reported in the
+    uptime banner (e.g. "AR651"). Nautobot's SoftwareVersion.version for
+    Huawei VRP is stored as "<software_family> <software_version>" (e.g.
+    "AR650 V300R024C00SPC100", confirmed via nbshell 2026-07-14) — CMDB
+    matching needs both tokens combined, not software_version alone.
 
     uptime_raw (Faza 11) is parsed from the same per-unit line that already
     supplies id/role, avoiding a second 'display version' call just for
@@ -25,6 +33,7 @@ def _parse_version(output):
     """
     vrp_version = None
     software_version = None
+    software_family = None
     model = None
     units = []
 
@@ -32,12 +41,13 @@ def _parse_version(output):
         line = line.strip()
 
         # VRP (R) software, Version 5.170 (AR650 V300R024C00SPC100)
-        # Requires two tokens inside parens (platform name + version) to avoid
+        # Requires two tokens inside parens (platform family + version) to avoid
         # matching per-slot lines like "Software Version : VRP (..., Version 5.170 (V200R024C00SPC500))"
-        m = re.search(r'Version\s+([\d.]+)\s+\(\S+\s+(V\w+)\)', line)
+        m = re.search(r'Version\s+([\d.]+)\s+\((\S+)\s+(V\w+)\)', line)
         if m:
             vrp_version = m.group(1)
-            software_version = m.group(2)
+            software_family = m.group(2)
+            software_version = m.group(3)
             continue
 
         # Huawei AR651 Router uptime is ...
@@ -75,6 +85,8 @@ def _parse_version(output):
         raise ValueError("VRP version not found in 'display version' output.")
     if not software_version:
         raise ValueError("Software version not found in 'display version' output.")
+    if not software_family:
+        raise ValueError("Software family not found in 'display version' output.")
     if not model:
         raise ValueError("Device model not found in 'display version' output.")
     if not units:
@@ -84,6 +96,7 @@ def _parse_version(output):
         unit["model"] = model
         unit["vrp_version"] = vrp_version
         unit["software_version"] = software_version
+        unit["software_family"] = software_family
 
     return units
 
@@ -422,19 +435,23 @@ def extract_discovery_facts(units):
     marked master) — v1 has no multi-chassis support, so any standby/slave
     units in a stack are ignored.
 
-    software_version is unit["software_version"] (e.g. "V300R024C00SPC100"),
-    which is already patch-free: get_info() never runs 'display
-    patch-information', and Nautobot's SoftwareVersion catalog for Huawei
-    VRP only holds base firmware versions (patches are a separate
-    SoftwareImageFile layer, not their own SoftwareVersion row) — so this
-    value is directly comparable to SoftwareVersion.version.
+    software_version is built as "<software_family> <software_version>"
+    (e.g. "AR650 V300R024C00SPC100") to match how Nautobot stores
+    SoftwareVersion.version for Huawei VRP (confirmed via nbshell
+    2026-07-14: entries look like "AR650 V300R023C00SPC100", not a bare
+    VRP version string) — software_family is the platform-family token
+    ("AR650"), distinct from the exact chassis model ("AR651") reported
+    elsewhere. Patch-free by construction: get_info() never runs 'display
+    patch-information', and the catalog only holds base firmware versions
+    (patches are a separate SoftwareImageFile layer, not their own
+    SoftwareVersion row).
 
     Returns dict: {"serial": str, "software_version": str}.
     """
     unit = next((u for u in units if u.get("role") == "master"), units[0])
     return {
         "serial": unit["esn"],
-        "software_version": unit["software_version"],
+        "software_version": f"{unit['software_family']} {unit['software_version']}",
     }
 
 

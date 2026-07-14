@@ -211,6 +211,7 @@ def test_parse_version_router():
     assert m["model"] == "AR651"
     assert m["vrp_version"] == "5.170"
     assert m["software_version"] == "V300R024C00SPC100"
+    assert m["software_family"] == "AR650"
     assert m["uptime_raw"] == "2 weeks, 1 day, 12 hours, 21 minutes"
 
 
@@ -235,6 +236,7 @@ def test_parse_version_stack():
     assert master["model"] == "S6730-H24X6C"
     assert master["vrp_version"] == "5.170"
     assert master["software_version"] == "V200R024C00SPC500"
+    assert master["software_family"] == "S6730"
     assert master["uptime_raw"] == "26 weeks, 1 day, 12 hours, 32 minutes"
 
     assert standby["id"] == 2
@@ -242,6 +244,7 @@ def test_parse_version_stack():
     assert standby["model"] == "S6730-H24X6C"
     assert standby["vrp_version"] == "5.170"
     assert standby["software_version"] == "V200R024C00SPC500"
+    assert standby["software_family"] == "S6730"
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +482,7 @@ def test_get_info_router(huawei_client):
     assert m["esn"] == "2S5001048324A0014851"
     assert m["vrp_version"] == "5.170"
     assert m["software_version"] == "V300R024C00SPC100"
+    assert m["software_family"] == "AR650"
     assert m["startup_image"] == "flash:/AR650A_V300R024C00SPC100.cc"
     assert m["next_startup_image"] == "flash:/AR650A_V300R024C00SPC100.cc"
     assert m["backup_image"] == "flash:/AR650A_V300R023C00SPC100.cc"
@@ -567,7 +571,10 @@ def test_extract_discovery_facts_router(huawei_client):
 
     assert facts == {
         "serial": "2S5001048324A0014851",
-        "software_version": "V300R024C00SPC100",
+        # Matches Nautobot's stored SoftwareVersion.version format for
+        # Huawei VRP: "<software_family> <software_version>" (confirmed
+        # via nbshell, not the bare VRP version string).
+        "software_version": "AR650 V300R024C00SPC100",
     }
 
 
