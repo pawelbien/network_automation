@@ -4,6 +4,7 @@ import logging
 import time
 from network_automation.context import ExecutionContext
 from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
+from paramiko.ssh_exception import SSHException
 
 
 def _classify_connect_failure(exc: Exception) -> str:
@@ -20,6 +21,17 @@ def _classify_connect_failure(exc: Exception) -> str:
     end actively responded and rejected the connection - i.e. the device
     IS reachable - which is a meaningfully different situation from a
     genuine timeout (no response of any kind, e.g. a truly offline host).
+
+    A bare paramiko SSHException that is neither of those (observed
+    empirically as SSHException("Invalid key") when a legacy VRP device
+    rejects a public key's signature algorithm during auth) is *more*
+    diagnostic than a reset/refused, not less - it means the device
+    responded and completed enough of the SSH/auth exchange to actively
+    reject this specific attempt, rather than merely tearing down the TCP
+    session afterwards. Checked after the reset/refused text match since
+    "Error reading SSH protocol banner...Connection reset by peer" is
+    itself raised as an SSHException and must be classified by that more
+    specific wording first.
     """
     node = exc
     seen = set()
@@ -40,6 +52,22 @@ def _classify_connect_failure(exc: Exception) -> str:
                 "Connection refused. Device is reachable but nothing "
                 "accepted the connection on this port (SSH may be down, "
                 "or wrong port)."
+            )
+
+        # NetmikoTimeoutException/NetmikoAuthenticationException are
+        # themselves SSHException subclasses (Netmiko's own hierarchy) -
+        # excluded here so this branch only fires for the *real* underlying
+        # paramiko exception found deeper in the chain, not Netmiko's own
+        # outer wrapper.
+        if isinstance(node, SSHException) and not isinstance(
+            node, (NetmikoTimeoutException, NetmikoAuthenticationException)
+        ):
+            return (
+                f"SSH protocol/authentication rejected during connection "
+                f"setup ({text!r}). Device is reachable and responded - "
+                f"this is not a network timeout. A common cause on older "
+                f"devices is an unsupported public key signature algorithm "
+                f"(see disabled_algorithms)."
             )
 
         node = node.__context__ or node.__cause__

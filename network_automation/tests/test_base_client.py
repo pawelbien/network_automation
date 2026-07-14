@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from network_automation.base_client import BaseClient, _classify_connect_failure
 from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
+from paramiko.ssh_exception import SSHException
 
 
 def test_safe_log_info_swallows_logger_exception():
@@ -96,6 +97,39 @@ def test_classify_connect_failure_falls_back_to_offline_wording():
     assert result == "Connection timeout. Device may be offline."
 
 
+def test_classify_connect_failure_generic_sshexception_invalid_key():
+    # Observed live in production (2026-07-14, ibproha-lab-r1, first of the
+    # two connect_retries attempts): a legacy VRP device rejecting a public
+    # key's signature algorithm surfaces as Netmiko wrapping a bare
+    # SSHException("Invalid key") - not a ConnectionResetError/RefusedError
+    # at all. This is *more* diagnostic than a reset (the device completed
+    # enough of the exchange to actively reject the key), so it must not
+    # fall through to the generic "may be offline" wording.
+    outer = NetmikoTimeoutException(
+        "A paramiko SSHException occurred during connection creation: Invalid key"
+    )
+    outer.__context__ = SSHException("Invalid key")
+
+    result = _classify_connect_failure(outer)
+
+    assert "invalid key" in result.lower()
+    assert "reachable and responded" in result.lower()
+    assert "not a network timeout" in result.lower()
+
+
+def test_classify_connect_failure_prioritizes_reset_text_over_generic_sshexception():
+    # "Error reading SSH protocol banner...Connection reset by peer" is
+    # itself raised by paramiko as a bare SSHException - the reset-specific
+    # wording must still win over the generic SSHException branch, since
+    # it's more precise about what actually happened.
+    exc = SSHException("Error reading SSH protocol banner[Errno 54] Connection reset by peer")
+
+    result = _classify_connect_failure(exc)
+
+    assert "reset by peer" in result.lower()
+    assert "invalid key" not in result.lower()
+
+
 # ---------------------------------------------------------------------------
 # connect()
 # ---------------------------------------------------------------------------
@@ -137,6 +171,42 @@ def test_connect_final_exception_preserves_offline_wording_for_genuine_timeout(m
 
     assert "may be offline" in str(exc_info.value).lower()
     assert exc_info.value.__cause__ is timeout_exc
+
+
+def test_connect_two_attempt_sequence_matches_production_log(monkeypatch):
+    # Reproduces the exact sequence observed live (2026-07-14,
+    # ibproha-lab-r1): attempt 1 fails with "Invalid key" (SSHException via
+    # __context__), attempt 2 fails with a plain reset. The FINAL exception
+    # (raised after both attempts) must reflect attempt 2's classification
+    # (the last attempt's reason), not attempt 1's.
+    invalid_key_exc = NetmikoTimeoutException(
+        "A paramiko SSHException occurred during connection creation: Invalid key"
+    )
+    invalid_key_exc.__context__ = SSHException("Invalid key")
+
+    reset_exc = NetmikoTimeoutException("banner error")
+    reset_exc.__context__ = ConnectionResetError("Connection reset by peer")
+
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(side_effect=[invalid_key_exc, reset_exc]),
+    )
+
+    client = BaseClient(connect_retries=2, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    with pytest.raises(NetmikoTimeoutException) as exc_info:
+        client.connect()
+
+    assert "reset by peer" in str(exc_info.value).lower()
+    assert exc_info.value.__cause__ is reset_exc
+
+    logged_warnings = [
+        call.args[0] for call in client.logger.warning.call_args_list
+    ]
+    assert any("invalid key" in msg.lower() for msg in logged_warnings)
+    assert any("reset by peer" in msg.lower() for msg in logged_warnings)
 
 
 def test_connect_still_raises_authentication_exception_directly(monkeypatch):
