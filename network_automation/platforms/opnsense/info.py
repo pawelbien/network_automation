@@ -98,6 +98,61 @@ def _get_uptime(client):
     return duration, load_averages
 
 
+# -------------------------------------------------------
+# Version comparison
+# -------------------------------------------------------
+#
+# OPNsense version strings ("26.1", "26.1.11_10", "26.7") don't fit a
+# clean dotted-semver tuple: the "_10" suffix is a package/build counter,
+# not a patch level, and isn't always present. Two distinct comparisons
+# are needed, matching update() vs upgrade():
+#
+# - normalize_branch()/is_newer_branch() only look at MAJOR.MINOR - used
+#   by upgrade() to decide whether the release branch itself changed.
+# - normalize_version()/is_newer_version() look at the full string - used
+#   by update() to decide whether the version moved forward within the
+#   same branch.
+#
+# Neither is used to compare against a caller-supplied exact target
+# version (unlike MikroTik's is_newer_version()) - OPNsense doesn't let a
+# caller pick an exact target build the way MikroTik's /tool fetch does,
+# so verification only checks that the branch/version moved forward.
+
+_BRANCH_RE = re.compile(r"^(\d+)\.(\d+)")
+_VERSION_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:_(\d+))?")
+
+
+def normalize_branch(version: str) -> tuple[int, int]:
+    """Extract (major, minor) from an OPNsense version, e.g. "26.1.11_10" -> (26, 1)."""
+    match = _BRANCH_RE.match(version.strip())
+    if not match:
+        raise ValueError(f"Cannot extract branch from OPNsense version: {version!r}")
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def is_newer_branch(current_version: str, target_version: str) -> bool:
+    """Return True if target_version is on a newer release branch than current_version."""
+    return normalize_branch(target_version) > normalize_branch(current_version)
+
+
+def normalize_version(version: str) -> tuple[int, int, int, int]:
+    """
+    Extract (major, minor, patch, build) from an OPNsense version, e.g.
+    "26.1.11_10" -> (26, 1, 11, 10). patch/build default to 0 when absent
+    (e.g. "26.1" -> (26, 1, 0, 0)).
+    """
+    match = _VERSION_RE.match(version.strip())
+    if not match:
+        raise ValueError(f"Cannot parse OPNsense version: {version!r}")
+    major, minor, patch, build = match.groups()
+    return (int(major), int(minor), int(patch or 0), int(build or 0))
+
+
+def is_newer_version(current_version: str, target_version: str) -> bool:
+    """Return True if target_version is newer than current_version within the same branch."""
+    return normalize_version(target_version) > normalize_version(current_version)
+
+
 def get_info(client):
     """
     Collect system information and return a unified unit structure.
