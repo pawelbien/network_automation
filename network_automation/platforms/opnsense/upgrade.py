@@ -134,6 +134,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     start = time.monotonic()
     last_status_len = 0
     last_output_at = start
+    pending = ""  # trailing line not yet terminated by "\n" - held back until it is
     shell_error_active = False
 
     while True:
@@ -142,6 +143,8 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         if running_state == "ready":
             if shell_error_active:
                 client._safe_log_info("%s: configctl available again", action_name)
+            if pending.strip():
+                client._safe_log_info("%s", pending)
             break
 
         now = time.monotonic()
@@ -166,10 +169,19 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
             status_text = _poll_call(client, firmware.status, action_name, result)
             new_text, last_status_len = _new_status_suffix(status_text, last_status_len)
+            pending += new_text
 
-            if new_text.strip():
-                client._safe_log_info("%s", new_text)
+            if "\n" in pending:
+                *complete_lines, pending = pending.split("\n")
+                to_log = "\n".join(complete_lines)
+                if to_log.strip():
+                    client._safe_log_info("%s", to_log)
                 last_output_at = now
+            elif pending.strip():
+                if now - last_output_at > _HEARTBEAT_INTERVAL:
+                    client._safe_log_info("%s", pending)
+                    pending = ""
+                    last_output_at = now
             elif now - last_output_at > _HEARTBEAT_INTERVAL:
                 client._safe_log_info(
                     "%s: still running (%ds without new output)...",

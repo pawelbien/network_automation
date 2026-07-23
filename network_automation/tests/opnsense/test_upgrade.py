@@ -104,6 +104,42 @@ def firmware_client(opnsense_client):
 # update()
 # -------------------------------------------------------
 
+def test_update_holds_back_partial_line_until_newline_arrives(monkeypatch, mocker, firmware_client):
+    """
+    status() can return output mid-line (e.g. progress dots with no
+    trailing newline yet) - this must be held back and only logged once
+    a newline completes the line, so one growing line doesn't get split
+    across multiple log entries.
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch("network_automation.platforms.opnsense.upgrade.time.sleep")
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "busy", "busy", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        side_effect=[
+            "Extracting foo: ..",
+            "Extracting foo: .... done\n",
+            "Extracting foo: .... done\n***GOT REQUEST***\n...\n***DONE***",
+        ],
+    )
+    firmware_client.logger = MagicMock()
+
+    update(firmware_client, return_result=True)
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert not any(m == "Extracting foo: .." for m in info_messages)
+    assert any("Extracting foo: .... done" in m for m in info_messages)
+
+
 def test_update_logs_heartbeat_only_after_60s_without_new_output(monkeypatch, mocker, firmware_client):
     """
     While status() output isn't changing, no periodic "in progress"
