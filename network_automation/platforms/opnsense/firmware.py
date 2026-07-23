@@ -13,11 +13,7 @@ of these functions.
 
 from network_automation.platforms.opnsense.debug_log import debug_log
 
-# Absolute path, not just "configctl" - observed live (2026-07-23) that a
-# session re-established mid-upgrade (e.g. right after openssh-portable
-# itself gets replaced) can land with a PATH that doesn't include
-# /usr/local/sbin, making a bare "configctl" fail with "not found" instead
-# of running - silently breaking every subsequent poll instead of raising.
+# Absolute path rather than relying on inherited PATH.
 _CONFIGCTL = "/usr/local/sbin/configctl"
 
 

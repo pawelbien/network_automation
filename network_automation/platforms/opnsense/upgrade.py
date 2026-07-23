@@ -55,17 +55,11 @@ def _has_done_marker(text: str) -> bool:
 def _looks_like_shell_error(text: str) -> bool:
     """
     True if `text` looks like a shell error rather than real
-    running()/status() output.
-
-    Observed live (2026-07-23): configctl (a symlink to
-    /usr/local/opnsense/service/configd_ctl.py) can transiently report
-    "not found" for a few polls while the *opnsense* package itself - the
-    thing the update we're polling is installing - is mid-replacing its
-    own files. Not a fatal condition: the poll loop already tolerates it
-    (this text never equals "ready", so it just keeps polling within
-    firmware_poll_timeout), but a raw dump of it every poll reads as a
-    crash to anyone watching logs live. Used only to pick a clearer log
-    message - never changes control flow.
+    running()/status() output - e.g. configctl (a symlink into the
+    opnsense package) can transiently report "not found" while that same
+    package is mid-replacing its own files. Never equals "ready"/"busy",
+    so the poll loop already tolerates it; this only picks a clearer log
+    message instead of dumping the raw error text every poll.
     """
     return "not found" in text or "No such file or directory" in text
 
@@ -76,10 +70,7 @@ def _poll_call(client, fn, action_name: str):
     polling, reconnecting once if the SSH session was lost.
 
     The configctl firmware backend runs detached from our polling session
-    (see module docstring) - observed live (2026-07-23) that installing
-    base/kernel packages can disrupt sshd and drop our connection well
-    before any ***REBOOT*** marker appears, even though the backend job
-    keeps running unaffected. A dropped connection here means "reconnect
+    (see module docstring), so a dropped connection here means "reconnect
     and keep polling," not "the firmware operation failed" - only a
     reconnect failure (TimeoutError, propagated uncaught) or a second,
     immediate failure right after reconnecting is treated as fatal.
@@ -165,15 +156,11 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     if _has_reboot_marker(log_text):
         result.metadata["rebooted"] = True
 
-        # output_reboot() writes the ***REBOOT*** marker, then `sleep 5`,
-        # then rc.reboot - observed live (2026-07-23) to mean the device
-        # is still fully up for a few seconds after the marker appears.
-        # Without this grace period, wait_for_reconnect()'s first attempt
-        # can land on that still-alive, about-to-die session: the
-        # readiness probe succeeds, we call it reconnected, and the real
-        # reboot then kills that same connection moments later, surfacing
-        # as "Socket is closed" on the very next command (get_info() right
-        # after this function returns).
+        # output_reboot() writes the marker, then `sleep 5`, then
+        # rc.reboot - the device is still up for a few seconds after the
+        # marker appears. Without this grace period, wait_for_reconnect()
+        # can reconnect to that still-alive, about-to-die session and
+        # declare success right before the real reboot severs it.
         client.logger.info(
             "Reboot required; waiting %ds for the backend's internal "
             "delay before rc.reboot actually runs...",

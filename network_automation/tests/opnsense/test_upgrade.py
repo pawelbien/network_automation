@@ -136,12 +136,11 @@ def test_update_waits_out_grace_period_and_disconnects_stale_conn_before_reboot(
     monkeypatch, mocker, firmware_client
 ):
     """
-    Regression test (found live 2026-07-23): output_reboot() writes the
-    ***REBOOT*** marker, then `sleep 5`, then actually reboots - reconnecting
-    immediately risks landing on the still-alive, about-to-die session and
-    getting "Socket is closed" on the next command. _run_and_wait() must
-    sleep reboot_grace_period and attempt to close the stale connection
-    before nulling client.conn and calling wait_for_reconnect().
+    output_reboot() writes the ***REBOOT*** marker, then `sleep 5`, then
+    actually reboots - reconnecting immediately risks landing on the
+    still-alive, about-to-die session. _run_and_wait() must sleep
+    reboot_grace_period and attempt to close the stale connection before
+    nulling client.conn and calling wait_for_reconnect().
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
@@ -273,13 +272,12 @@ def test_update_falls_back_to_last_log_when_lockfile_empty(monkeypatch, mocker, 
 
 def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, firmware_client):
     """
-    Regression test (found live 2026-07-23, same session as the
-    reconnect fix): configctl (a symlink to configd_ctl.py) can
-    transiently report "not found" for a poll or two while the opnsense
-    package itself - what the update being polled is installing - is
-    mid-replacing its own files. This must not be mistaken for "ready"
-    and must not call firmware.status() during that iteration (skipped
-    in favor of a friendlier log message) - it should just keep polling.
+    configctl (a symlink to configd_ctl.py) can transiently report "not
+    found" for a poll or two while the opnsense package itself - what the
+    update being polled is installing - is mid-replacing its own files.
+    This must not be mistaken for "ready" and must not call
+    firmware.status() during that iteration (skipped in favor of a
+    friendlier log message) - it should just keep polling.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
@@ -308,12 +306,12 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
 
 def test_update_reconnects_when_connection_lost_mid_poll(monkeypatch, mocker, firmware_client):
     """
-    Regression test (found live 2026-07-23): installing base/kernel
-    packages can disrupt sshd and drop the polling connection well
-    before any ***REBOOT*** marker appears, even though the backend job
-    itself keeps running unaffected (it's detached from our session -
-    see the module docstring). A dropped connection while polling must
-    reconnect and resume, not fail the whole operation.
+    Installing base/kernel packages can disrupt sshd and drop the
+    polling connection well before any ***REBOOT*** marker appears, even
+    though the backend job itself keeps running unaffected (it's
+    detached from our session - see the module docstring). A dropped
+    connection while polling must reconnect and resume, not fail the
+    whole operation.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
