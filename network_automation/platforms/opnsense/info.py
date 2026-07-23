@@ -31,8 +31,15 @@ def _get_hostname(client):
 
 
 def _get_opnsense_version(client):
-    """Read the OPNsense version. Mandatory field."""
-    output = _send(client, "opnsense-version")
+    """
+    Read the OPNsense version. Mandatory field.
+
+    Absolute path, not just "opnsense-version" - same PATH robustness
+    reasoning as firmware.py's _CONFIGCTL: this is an OPNsense-local
+    /usr/local/sbin script, not a base-system utility, so it can't be
+    assumed present on every possible session's PATH.
+    """
+    output = _send(client, "/usr/local/sbin/opnsense-version")
 
     version = output.strip()
     if not version:

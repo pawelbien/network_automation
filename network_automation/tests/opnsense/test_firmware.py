@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 from network_automation.context import ExecutionContext
 from network_automation.platforms.opnsense import firmware
 
+_CONFIGCTL = "/usr/local/sbin/configctl"
+
 
 def _client_with_response(response):
     client = MagicMock()
@@ -16,39 +18,39 @@ def _client_with_response(response):
 def test_check_sends_expected_command():
     client = _client_with_response(" OK ")
     assert firmware.check(client) == "OK"
-    client.conn.send_command.assert_called_once_with("configctl firmware check")
+    client.conn.send_command.assert_called_once_with(f"{_CONFIGCTL} firmware check")
 
 
 def test_update_sends_expected_command():
     client = _client_with_response(" OK ")
     assert firmware.update(client) == "OK"
-    client.conn.send_command.assert_called_once_with("configctl firmware update")
+    client.conn.send_command.assert_called_once_with(f"{_CONFIGCTL} firmware update")
 
 
 def test_upgrade_sends_expected_command():
     client = _client_with_response(" OK ")
     assert firmware.upgrade(client) == "OK"
-    client.conn.send_command.assert_called_once_with("configctl firmware upgrade")
+    client.conn.send_command.assert_called_once_with(f"{_CONFIGCTL} firmware upgrade")
 
 
 def test_running_strips_and_returns_state():
     client = _client_with_response(" busy \n")
     assert firmware.running(client) == "busy"
-    client.conn.send_command.assert_called_once_with("configctl firmware running")
+    client.conn.send_command.assert_called_once_with(f"{_CONFIGCTL} firmware running")
 
 
 def test_status_returns_raw_log_unstripped():
     log = "***GOT REQUEST FOR CHECK***\nCurrently running ...\n***DONE***\n"
     client = _client_with_response(log)
     assert firmware.status(client) == log
-    client.conn.send_command.assert_called_once_with("configctl firmware status")
+    client.conn.send_command.assert_called_once_with(f"{_CONFIGCTL} firmware status")
 
 
 def test_last_log_returns_raw_persisted_log():
     log = "***GOT REQUEST FOR CHECK***\n...\n***DONE***\n"
     client = _client_with_response(log)
     assert firmware.last_log(client) == log
-    client.conn.send_command.assert_called_once_with("configctl firmware log show")
+    client.conn.send_command.assert_called_once_with(f"{_CONFIGCTL} firmware log show")
 
 
 def test_last_log_empty_when_no_operation_has_run():
@@ -64,7 +66,7 @@ def test_send_logs_at_debug_when_enabled():
 
     assert client.logger.debug.call_count == 2
     first_call, second_call = client.logger.debug.call_args_list
-    assert "configctl firmware running" in first_call.args
+    assert f"{_CONFIGCTL} firmware running" in first_call.args
     assert "ready" in second_call.args
 
 

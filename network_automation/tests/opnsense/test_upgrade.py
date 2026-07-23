@@ -217,9 +217,81 @@ def test_update_raises_when_log_has_no_marker(monkeypatch, mocker, firmware_clie
         "network_automation.platforms.opnsense.upgrade.firmware.status",
         return_value="garbage log, no marker",
     )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.last_log",
+        return_value="",
+    )
 
     with pytest.raises(OPNsenseFirmwareError, match="ended without"):
         update(firmware_client, return_result=True)
+
+
+def test_update_falls_back_to_last_log_when_lockfile_empty(monkeypatch, mocker, firmware_client):
+    """
+    Regression coverage for the fallback added alongside _poll_call():
+    if the lockfile-based status() comes back empty/markerless (e.g. its
+    /tmp tmpfs was reset by a reboot that happened while reconnecting),
+    the persisted last_log() (which survives reboot) is used instead.
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.last_log",
+        return_value="***GOT REQUEST***\n...\n***DONE***",
+    )
+    wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+
+    result = update(firmware_client, return_result=True)
+
+    assert "GOT REQUEST" in result.metadata["log"]
+    assert result.metadata["rebooted"] is False
+    wait_mock.assert_not_called()
+
+
+def test_update_reconnects_when_connection_lost_mid_poll(monkeypatch, mocker, firmware_client):
+    """
+    Regression test (found live 2026-07-23): installing base/kernel
+    packages can disrupt sshd and drop the polling connection well
+    before any ***REBOOT*** marker appears, even though the backend job
+    itself keeps running unaffected (it's detached from our session -
+    see the module docstring). A dropped connection while polling must
+    reconnect and resume, not fail the whole operation.
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", Exception("Socket is closed"), "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="***GOT REQUEST***\n...\n***DONE***",
+    )
+    wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+
+    result = update(firmware_client, return_result=True)
+
+    assert result.success is True
+    assert result.metadata["rebooted"] is False
+    wait_mock.assert_called_once()
 
 
 def test_update_failure_marks_result_and_reraises(monkeypatch, firmware_client):

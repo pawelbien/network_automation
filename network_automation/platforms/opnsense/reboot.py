@@ -89,8 +89,13 @@ def wait_for_reconnect(client):
             client._ensure_shell()
 
             # ---- probe CLI readiness (bounded, must not hang) ----
+            # Uses "hostname" (base-system utility, always on PATH) rather
+            # than an OPNsense-local /usr/local/sbin script - a PATH that's
+            # missing /usr/local/sbin (see firmware.py's _CONFIGCTL) would
+            # make an opnsense-version probe fail with "not found" text,
+            # which is still non-empty and would be misread as success.
             out = conn.send_command(
-                "opnsense-version",
+                "hostname",
                 delay_factor=2,
                 read_timeout=10,
             )

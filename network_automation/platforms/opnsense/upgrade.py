@@ -52,6 +52,32 @@ def _has_done_marker(text: str) -> bool:
     return "***DONE***" in text
 
 
+def _poll_call(client, fn, action_name: str):
+    """
+    Call a firmware.py primitive (running()/status()/last_log()) while
+    polling, reconnecting once if the SSH session was lost.
+
+    The configctl firmware backend runs detached from our polling session
+    (see module docstring) - observed live (2026-07-23) that installing
+    base/kernel packages can disrupt sshd and drop our connection well
+    before any ***REBOOT*** marker appears, even though the backend job
+    keeps running unaffected. A dropped connection here means "reconnect
+    and keep polling," not "the firmware operation failed" - only a
+    reconnect failure (TimeoutError, propagated uncaught) or a second,
+    immediate failure right after reconnecting is treated as fatal.
+    """
+    try:
+        return fn(client)
+    except Exception as exc:
+        client.logger.warning(
+            "Lost connection while polling %s (%s) - reconnecting...",
+            action_name, exc,
+        )
+        client.conn = None
+        client.wait_for_reconnect()
+        return fn(client)
+
+
 def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) -> None:
     """
     Start a configctl firmware action and block until it completes.
@@ -77,7 +103,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
     start = time.monotonic()
     while True:
-        if firmware.running(client) == "ready":
+        if _poll_call(client, firmware.running, action_name) == "ready":
             break
 
         if time.monotonic() - start > client.firmware_poll_timeout:
@@ -87,11 +113,27 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
             )
 
         client._safe_log_info(
-            "%s in progress:\n%s", action_name, firmware.status(client)
+            "%s in progress:\n%s",
+            action_name,
+            _poll_call(client, firmware.status, action_name),
         )
         time.sleep(client.firmware_poll_interval)
 
-    log_text = firmware.status(client)
+    log_text = _poll_call(client, firmware.status, action_name)
+
+    if not log_text.strip() or (
+        not _has_reboot_marker(log_text) and not _has_done_marker(log_text)
+    ):
+        # LOCKFILE lives under /tmp, which OPNsense resets on reboot - if
+        # our connection dropped and a reboot happened while we were
+        # reconnecting, the lockfile may already be gone/empty by the
+        # time we're back. The persisted log at LOGFILE (under
+        # /var/cache) survives a reboot, so fall back to it before
+        # giving up.
+        fallback_log = _poll_call(client, firmware.last_log, action_name)
+        if fallback_log.strip():
+            log_text = fallback_log
+
     result.metadata["log"] = log_text
 
     if _has_reboot_marker(log_text):
