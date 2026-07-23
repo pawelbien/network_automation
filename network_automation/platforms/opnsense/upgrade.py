@@ -93,20 +93,19 @@ def _poll_call(client, fn, action_name: str, result: OperationResult):
         return fn(client)
 
 
-def _log_new_status(client, action_name: str, current_text: str, last_len: int) -> int:
-    """
-    Log only the portion of status() appended since the last poll.
+_HEARTBEAT_INTERVAL = 60
 
-    status() returns the entire accumulated lockfile content on every
-    call, not just what's new - logging it verbatim each poll re-prints
-    everything already seen. Returns the new last_len to pass into the
-    next call; falls back to logging the whole text if it got shorter
-    than last_len (the lockfile was reset, e.g. by a reboot).
+
+def _new_status_suffix(current_text: str, last_len: int) -> tuple[str, int]:
+    """
+    Return (new_suffix, updated_len) for status(), which returns the
+    entire accumulated lockfile content on every call, not just what's
+    new. A current_text shorter than last_len means the lockfile was
+    reset (e.g. by a reboot) - the whole text counts as new in that case,
+    since there's nothing sane left to diff against.
     """
     new_text = current_text if len(current_text) < last_len else current_text[last_len:]
-    if new_text.strip():
-        client._safe_log_info("%s in progress:\n%s", action_name, new_text)
-    return len(current_text)
+    return new_text, len(current_text)
 
 
 def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) -> None:
@@ -134,26 +133,50 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
     start = time.monotonic()
     last_status_len = 0
+    last_output_at = start
+    shell_error_active = False
+
     while True:
         running_state = _poll_call(client, firmware.running, action_name, result)
+
         if running_state == "ready":
+            if shell_error_active:
+                client._safe_log_info("%s: configctl available again", action_name)
             break
 
-        if time.monotonic() - start > client.firmware_poll_timeout:
+        now = time.monotonic()
+        if now - start > client.firmware_poll_timeout:
             raise OPNsenseFirmwareError(
                 f"{action_name} did not complete within "
                 f"{client.firmware_poll_timeout}s"
             )
 
         if _looks_like_shell_error(running_state):
-            client._safe_log_info(
-                "%s: configctl momentarily unavailable (likely the "
-                "opnsense package itself mid-replace) - retrying...",
-                action_name,
-            )
+            if not shell_error_active:
+                client._safe_log_info(
+                    "%s: configctl temporarily unavailable (expected "
+                    "while replacing the opnsense package)",
+                    action_name,
+                )
+                shell_error_active = True
         else:
+            if shell_error_active:
+                client._safe_log_info("%s: configctl available again", action_name)
+                shell_error_active = False
+
             status_text = _poll_call(client, firmware.status, action_name, result)
-            last_status_len = _log_new_status(client, action_name, status_text, last_status_len)
+            new_text, last_status_len = _new_status_suffix(status_text, last_status_len)
+
+            if new_text.strip():
+                client._safe_log_info("%s", new_text)
+                last_output_at = now
+            elif now - last_output_at > _HEARTBEAT_INTERVAL:
+                client._safe_log_info(
+                    "%s: still running (%ds without new output)...",
+                    action_name, int(now - last_output_at),
+                )
+                last_output_at = now
+
         time.sleep(client.firmware_poll_interval)
 
     log_text = _poll_call(client, firmware.status, action_name, result)

@@ -8,7 +8,7 @@ from network_automation.platforms.opnsense.upgrade import (
     _has_reboot_marker,
     _has_done_marker,
     _looks_like_shell_error,
-    _log_new_status,
+    _new_status_suffix,
     check_updates,
     update,
     upgrade,
@@ -46,36 +46,27 @@ def test_looks_like_shell_error_false_for_normal_states():
 
 
 # -------------------------------------------------------
-# _log_new_status: log only the appended suffix, not the whole buffer
+# _new_status_suffix: diff against last_len, no logging side effects
 # -------------------------------------------------------
 
-def test_log_new_status_logs_only_the_new_suffix():
-    client = MagicMock()
+def test_new_status_suffix_returns_only_the_new_part():
+    new_text, last_len = _new_status_suffix("A", 0)
+    assert (new_text, last_len) == ("A", 1)
 
-    last_len = _log_new_status(client, "update", "A", 0)
-    assert last_len == 1
-    client._safe_log_info.assert_called_once_with("%s in progress:\n%s", "update", "A")
-
-    client.reset_mock()
-    last_len = _log_new_status(client, "update", "AB", last_len)
-    assert last_len == 2
-    client._safe_log_info.assert_called_once_with("%s in progress:\n%s", "update", "B")
+    new_text, last_len = _new_status_suffix("AB", last_len)
+    assert (new_text, last_len) == ("B", 2)
 
 
-def test_log_new_status_skips_logging_when_nothing_new():
-    client = MagicMock()
-    last_len = _log_new_status(client, "update", "AB", 2)
-    assert last_len == 2
-    client._safe_log_info.assert_not_called()
+def test_new_status_suffix_empty_when_nothing_new():
+    new_text, last_len = _new_status_suffix("AB", 2)
+    assert (new_text, last_len) == ("", 2)
 
 
-def test_log_new_status_logs_whole_text_when_buffer_shrank():
+def test_new_status_suffix_returns_whole_text_when_buffer_shrank():
     """A shorter buffer than last_len means the lockfile was reset (e.g.
     wiped by a reboot) - there's nothing sane to diff against."""
-    client = MagicMock()
-    last_len = _log_new_status(client, "update", "X", 10)
-    assert last_len == 1
-    client._safe_log_info.assert_called_once_with("%s in progress:\n%s", "update", "X")
+    new_text, last_len = _new_status_suffix("X", 10)
+    assert (new_text, last_len) == ("X", 1)
 
 
 # -------------------------------------------------------
@@ -112,6 +103,45 @@ def firmware_client(opnsense_client):
 # -------------------------------------------------------
 # update()
 # -------------------------------------------------------
+
+def test_update_logs_heartbeat_only_after_60s_without_new_output(monkeypatch, mocker, firmware_client):
+    """
+    While status() output isn't changing, no periodic "in progress"
+    message should be logged - only a heartbeat, and only once per ~60s
+    of silence, not on every poll.
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+    firmware_client.firmware_poll_timeout = 100
+
+    mocker.patch("network_automation.platforms.opnsense.upgrade.time.sleep")
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.time.monotonic",
+        side_effect=[0, 10, 70, 71],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "busy", "busy", "busy", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        side_effect=["", "", "", "***GOT REQUEST***\n...\n***DONE***"],
+    )
+    mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
+
+    update(firmware_client, return_result=True)
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    heartbeats = [m for m in info_messages if "still running" in m]
+    assert len(heartbeats) == 1
+    assert "without new output" in heartbeats[0]
+    assert not any("in progress" in m for m in info_messages)
+
 
 def test_update_completes_without_reboot(monkeypatch, mocker, firmware_client):
     _stub_lifecycle(monkeypatch, firmware_client)
@@ -312,6 +342,11 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     This must not be mistaken for "ready" and must not call
     firmware.status() during that iteration (skipped in favor of a
     friendlier log message) - it should just keep polling.
+
+    The unavailable/available-again messages are logged once per state
+    transition, not once per poll: two consecutive "not found" polls
+    must log "temporarily unavailable" only once, and "available again"
+    only once when the state clears.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
@@ -322,13 +357,19 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     )
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.running",
-        side_effect=["ready", "-sh: /usr/local/sbin/configctl: not found", "ready"],
+        side_effect=[
+            "ready",
+            "-sh: /usr/local/sbin/configctl: not found",
+            "-sh: /usr/local/sbin/configctl: not found",
+            "ready",
+        ],
     )
     status_mock = mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.status",
         return_value="***GOT REQUEST***\n...\n***DONE***",
     )
     wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
 
     result = update(firmware_client, return_result=True)
 
@@ -336,6 +377,10 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     assert result.metadata["rebooted"] is False
     status_mock.assert_called_once()  # only the final post-loop read
     wait_mock.assert_not_called()
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert sum("temporarily unavailable" in m for m in info_messages) == 1
+    assert sum("available again" in m for m in info_messages) == 1
 
 
 def test_update_reconnects_when_connection_lost_mid_poll(monkeypatch, mocker, firmware_client):
