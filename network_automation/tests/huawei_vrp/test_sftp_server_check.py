@@ -59,7 +59,7 @@ def test_ensure_sftp_server_enabled_raises_when_disabled():
     client = MagicMock()
     client.conn.send_command.return_value = ""
 
-    with pytest.raises(SftpServerDisabledError, match="sftp server enable"):
+    with pytest.raises(SftpServerDisabledError, match="SFTP server is not enabled"):
         _ensure_sftp_server_enabled(client)
 
     client.conn.send_command.assert_called_once_with(
