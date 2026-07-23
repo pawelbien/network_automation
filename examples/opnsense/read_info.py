@@ -20,15 +20,17 @@ def main():
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    password = os.environ.get("OPNSENSE_PASSWORD")
-    if not password:
-        raise RuntimeError("Environment variable OPNSENSE_PASSWORD is not set.")
+    passphrase = os.environ.get("PASSPHRASE")
+    if not passphrase:
+        raise RuntimeError("Environment variable PASSPHRASE is not set.")
 
     params = {
         "device_type": "opnsense",
         "host": "10.0.0.1",
         "username": "testuser",
-        "password": password,
+        "key_file": "~/.ssh/id_rsa_test",
+        "passphrase": passphrase,
+        "use_keys": True,
         # skip_menu=True (default) assumes the SSH account lands directly
         # in a shell. Set skip_menu=False for accounts that still see
         # OPNsense's numbered console menu ("0) Logout" ... "8) Shell").
