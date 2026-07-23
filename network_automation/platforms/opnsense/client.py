@@ -4,9 +4,14 @@ import re
 
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
+from network_automation.platforms.opnsense.debug_log import debug_log
 from network_automation.platforms.opnsense.exceptions import OPNsenseShellError
 from network_automation.platforms.opnsense.info import read_info
-from network_automation.platforms.opnsense.upgrade import upgrade as upgrade_workflow
+from network_automation.platforms.opnsense.upgrade import (
+    check_updates as check_updates_workflow,
+    update as update_workflow,
+    upgrade as upgrade_workflow,
+)
 from network_automation.platforms.opnsense.reboot import (
     reboot as reboot_workflow,
     wait_for_reconnect as wait_for_reconnect_workflow,
@@ -33,6 +38,10 @@ class OPNsense(BaseClient):
         skip_menu: bool = True,
         shell_menu_option: str = "8",
         disabled_algorithms: dict | None = None,
+        firmware_poll_interval: int = 15,
+        firmware_poll_timeout: int = 3600,
+        reconnect_timeout: int = 300,
+        reconnect_delay: int = 10,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -52,6 +61,18 @@ class OPNsense(BaseClient):
         disabled_algorithms — passed directly to Paramiko; use to re-enable
                              legacy algorithms on older devices that don't
                              support modern SSH pubkey signature algorithms.
+        firmware_poll_interval — seconds between configctl firmware
+                             running()/status() polls during update()/
+                             upgrade()/check_updates() (default 15).
+        firmware_poll_timeout — max seconds to wait for the firmware
+                             backend to report "ready" before raising
+                             OPNsenseFirmwareError (default 3600 - base/
+                             kernel updates can run well past 10-30
+                             minutes on slow hardware).
+        reconnect_timeout   — seconds to wait for SSH after a reboot before
+                             raising TimeoutError (default 300).
+        reconnect_delay     — polling interval in seconds during reconnect
+                             wait (default 10).
         """
         # Initialize shared BaseClient state (context, logger, retry config)
         super().__init__(
@@ -84,6 +105,14 @@ class OPNsense(BaseClient):
         self.skip_menu = skip_menu
         self.shell_menu_option = shell_menu_option
 
+        # Firmware operation polling
+        self.firmware_poll_interval = firmware_poll_interval
+        self.firmware_poll_timeout = firmware_poll_timeout
+
+        # Reconnect-after-reboot configuration
+        self.reconnect_timeout = reconnect_timeout
+        self.reconnect_delay = reconnect_delay
+
         # Runtime state, populated by get_info()
         self.hostname = None
         self.opnsense_version = None
@@ -106,7 +135,9 @@ class OPNsense(BaseClient):
 
         self.logger.info("Selecting shell from OPNsense console menu...")
 
+        debug_log(self, "send_command_timing: %s", self.shell_menu_option)
         output = self.conn.send_command_timing(self.shell_menu_option)
+        debug_log(self, "send_command_timing response: %s", output)
 
         if not re.search(r"[#$]\s*$", output):
             raise OPNsenseShellError(
@@ -154,9 +185,30 @@ class OPNsense(BaseClient):
         return wait_for_reconnect_workflow(self)
 
     # -------------------------------------------------------
-    # Upgrade
+    # Firmware update / upgrade
     # -------------------------------------------------------
 
+    def check_updates(self, *, return_result: bool = False):
+        """
+        Check for available updates (`configctl firmware check`).
+        Read-only - never reboots, never modifies the device.
+        """
+        return check_updates_workflow(self, return_result=return_result)
+
+    def update(self, *, return_result: bool = False):
+        """
+        Update within the device's current release branch
+        (`configctl firmware update`). Reboots only if the backend
+        decided a base/kernel update required one.
+        """
+        return update_workflow(self, return_result=return_result)
+
     def upgrade(self, *, return_result: bool = False):
-        """Run the full firmware/version upgrade workflow."""
+        """
+        Migrate the device to a new OPNsense release branch
+        (`configctl firmware upgrade`). Reboots only if the backend
+        decided one is required. Does NOT run update() first - call it
+        explicitly beforehand if the device isn't up to date on its
+        current branch.
+        """
         return upgrade_workflow(self, return_result=return_result)
