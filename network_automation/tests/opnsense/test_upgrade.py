@@ -8,6 +8,7 @@ from network_automation.platforms.opnsense.upgrade import (
     _has_reboot_marker,
     _has_done_marker,
     _looks_like_shell_error,
+    _log_new_status,
     check_updates,
     update,
     upgrade,
@@ -42,6 +43,39 @@ def test_looks_like_shell_error_true():
 def test_looks_like_shell_error_false_for_normal_states():
     assert not _looks_like_shell_error("ready")
     assert not _looks_like_shell_error("busy")
+
+
+# -------------------------------------------------------
+# _log_new_status: log only the appended suffix, not the whole buffer
+# -------------------------------------------------------
+
+def test_log_new_status_logs_only_the_new_suffix():
+    client = MagicMock()
+
+    last_len = _log_new_status(client, "update", "A", 0)
+    assert last_len == 1
+    client._safe_log_info.assert_called_once_with("%s in progress:\n%s", "update", "A")
+
+    client.reset_mock()
+    last_len = _log_new_status(client, "update", "AB", last_len)
+    assert last_len == 2
+    client._safe_log_info.assert_called_once_with("%s in progress:\n%s", "update", "B")
+
+
+def test_log_new_status_skips_logging_when_nothing_new():
+    client = MagicMock()
+    last_len = _log_new_status(client, "update", "AB", 2)
+    assert last_len == 2
+    client._safe_log_info.assert_not_called()
+
+
+def test_log_new_status_logs_whole_text_when_buffer_shrank():
+    """A shorter buffer than last_len means the lockfile was reset (e.g.
+    wiped by a reboot) - there's nothing sane to diff against."""
+    client = MagicMock()
+    last_len = _log_new_status(client, "update", "X", 10)
+    assert last_len == 1
+    client._safe_log_info.assert_called_once_with("%s in progress:\n%s", "update", "X")
 
 
 # -------------------------------------------------------
@@ -334,6 +368,48 @@ def test_update_reconnects_when_connection_lost_mid_poll(monkeypatch, mocker, fi
 
     assert result.success is True
     assert result.metadata["rebooted"] is False
+    wait_mock.assert_called_once()
+
+
+def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
+    monkeypatch, mocker, firmware_client
+):
+    """
+    If polling reconnected at least once and the final log has no marker
+    in either status() or last_log() (e.g. the lockfile was wiped by a
+    reboot that happened while we were disconnected, and a reboot-
+    required completion never got persisted to last_log() either), this
+    must be treated as a probable reboot instead of a hard failure - the
+    update almost certainly succeeded even though its log is
+    unrecoverable. Without reconnected_during_poll being set, the same
+    markerless log would raise (see test_update_raises_when_log_has_no_marker).
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", Exception("Socket is closed"), "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="\n\n",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.last_log",
+        return_value="",
+    )
+    wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+
+    result = update(firmware_client, return_result=True)
+
+    assert result.success is True
+    assert result.metadata["rebooted"] is True
+    assert result.metadata["reconnected_during_poll"] is True
     wait_mock.assert_called_once()
 
 

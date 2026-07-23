@@ -64,7 +64,7 @@ def _looks_like_shell_error(text: str) -> bool:
     return "not found" in text or "No such file or directory" in text
 
 
-def _poll_call(client, fn, action_name: str):
+def _poll_call(client, fn, action_name: str, result: OperationResult):
     """
     Call a firmware.py primitive (running()/status()/last_log()) while
     polling, reconnecting once if the SSH session was lost.
@@ -74,6 +74,11 @@ def _poll_call(client, fn, action_name: str):
     and keep polling," not "the firmware operation failed" - only a
     reconnect failure (TimeoutError, propagated uncaught) or a second,
     immediate failure right after reconnecting is treated as fatal.
+
+    Records result.metadata["reconnected_during_poll"] = True on
+    reconnect - used by _run_and_wait() to tell a genuinely ambiguous
+    final log apart from one that's ambiguous because a reboot happened
+    while we were disconnected (see the "no marker" branch there).
     """
     try:
         return fn(client)
@@ -82,9 +87,26 @@ def _poll_call(client, fn, action_name: str):
             "Lost connection while polling %s (%s) - reconnecting...",
             action_name, exc,
         )
+        result.metadata["reconnected_during_poll"] = True
         client.conn = None
         client.wait_for_reconnect()
         return fn(client)
+
+
+def _log_new_status(client, action_name: str, current_text: str, last_len: int) -> int:
+    """
+    Log only the portion of status() appended since the last poll.
+
+    status() returns the entire accumulated lockfile content on every
+    call, not just what's new - logging it verbatim each poll re-prints
+    everything already seen. Returns the new last_len to pass into the
+    next call; falls back to logging the whole text if it got shorter
+    than last_len (the lockfile was reset, e.g. by a reboot).
+    """
+    new_text = current_text if len(current_text) < last_len else current_text[last_len:]
+    if new_text.strip():
+        client._safe_log_info("%s in progress:\n%s", action_name, new_text)
+    return len(current_text)
 
 
 def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) -> None:
@@ -111,8 +133,9 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     client.logger.info("%s started: %s", action_name, ack)
 
     start = time.monotonic()
+    last_status_len = 0
     while True:
-        running_state = _poll_call(client, firmware.running, action_name)
+        running_state = _poll_call(client, firmware.running, action_name, result)
         if running_state == "ready":
             break
 
@@ -129,14 +152,11 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
                 action_name,
             )
         else:
-            client._safe_log_info(
-                "%s in progress:\n%s",
-                action_name,
-                _poll_call(client, firmware.status, action_name),
-            )
+            status_text = _poll_call(client, firmware.status, action_name, result)
+            last_status_len = _log_new_status(client, action_name, status_text, last_status_len)
         time.sleep(client.firmware_poll_interval)
 
-    log_text = _poll_call(client, firmware.status, action_name)
+    log_text = _poll_call(client, firmware.status, action_name, result)
 
     if not log_text.strip() or (
         not _has_reboot_marker(log_text) and not _has_done_marker(log_text)
@@ -147,7 +167,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         # time we're back. The persisted log at LOGFILE (under
         # /var/cache) survives a reboot, so fall back to it before
         # giving up.
-        fallback_log = _poll_call(client, firmware.last_log, action_name)
+        fallback_log = _poll_call(client, firmware.last_log, action_name, result)
         if fallback_log.strip():
             log_text = fallback_log
 
@@ -176,6 +196,22 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         client.wait_for_reconnect()
     elif _has_done_marker(log_text):
         result.metadata["rebooted"] = False
+    elif result.metadata.get("reconnected_during_poll"):
+        # No marker in either log, but we know the connection was lost
+        # and reconnected while polling - most likely the device
+        # rebooted before we could observe the marker being written
+        # (LOCKFILE lives under /tmp, wiped by reboot; a reboot-required
+        # completion may not persist to LOGFILE either - see the
+        # ***REBOOT*** branch above vs. output_done()'s copy step).
+        # Treating this as a hard failure would be wrong when the update
+        # most likely succeeded; the caller's own post-call get_info()
+        # is the real verification of the outcome.
+        client.logger.warning(
+            "%s: connection was lost and reconnected while polling; "
+            "assuming a reboot occurred (log unrecoverable: %r)",
+            action_name, log_text,
+        )
+        result.metadata["rebooted"] = True
     else:
         raise OPNsenseFirmwareError(
             f"{action_name} log ended without ***DONE*** or ***REBOOT***: "
