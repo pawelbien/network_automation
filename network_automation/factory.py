@@ -3,10 +3,12 @@
 from network_automation.context import ExecutionContext
 from network_automation.platforms.huawei_vrp.client import HuaweiVRP
 from network_automation.platforms.mikrotik_routeros.client import MikrotikRouterOS
+from network_automation.platforms.opnsense.client import OPNsense
 
 _PLATFORM_REGISTRY = {
     "huawei": HuaweiVRP,
     "mikrotik_routeros": MikrotikRouterOS,
+    "opnsense": OPNsense,
     # "cisco_ios": CiscoIOS,
     # "juniper_junos": JuniperJunos,
 }
@@ -16,7 +18,8 @@ def get_client(**params):
     Create and return a platform client.
 
     Required parameter:
-      device_type  — platform identifier: "mikrotik_routeros" or "huawei".
+      device_type  — platform identifier: "mikrotik_routeros", "huawei", or
+                     "opnsense".
 
     Execution context (optional, mutually exclusive):
       context      — pre-built ExecutionContext instance; if provided, the
