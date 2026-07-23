@@ -52,6 +52,24 @@ def _has_done_marker(text: str) -> bool:
     return "***DONE***" in text
 
 
+def _looks_like_shell_error(text: str) -> bool:
+    """
+    True if `text` looks like a shell error rather than real
+    running()/status() output.
+
+    Observed live (2026-07-23): configctl (a symlink to
+    /usr/local/opnsense/service/configd_ctl.py) can transiently report
+    "not found" for a few polls while the *opnsense* package itself - the
+    thing the update we're polling is installing - is mid-replacing its
+    own files. Not a fatal condition: the poll loop already tolerates it
+    (this text never equals "ready", so it just keeps polling within
+    firmware_poll_timeout), but a raw dump of it every poll reads as a
+    crash to anyone watching logs live. Used only to pick a clearer log
+    message - never changes control flow.
+    """
+    return "not found" in text or "No such file or directory" in text
+
+
 def _poll_call(client, fn, action_name: str):
     """
     Call a firmware.py primitive (running()/status()/last_log()) while
@@ -103,7 +121,8 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
     start = time.monotonic()
     while True:
-        if _poll_call(client, firmware.running, action_name) == "ready":
+        running_state = _poll_call(client, firmware.running, action_name)
+        if running_state == "ready":
             break
 
         if time.monotonic() - start > client.firmware_poll_timeout:
@@ -112,11 +131,18 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
                 f"{client.firmware_poll_timeout}s"
             )
 
-        client._safe_log_info(
-            "%s in progress:\n%s",
-            action_name,
-            _poll_call(client, firmware.status, action_name),
-        )
+        if _looks_like_shell_error(running_state):
+            client._safe_log_info(
+                "%s: configctl momentarily unavailable (likely the "
+                "opnsense package itself mid-replace) - retrying...",
+                action_name,
+            )
+        else:
+            client._safe_log_info(
+                "%s in progress:\n%s",
+                action_name,
+                _poll_call(client, firmware.status, action_name),
+            )
         time.sleep(client.firmware_poll_interval)
 
     log_text = _poll_call(client, firmware.status, action_name)
