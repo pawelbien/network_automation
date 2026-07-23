@@ -54,22 +54,49 @@ def test_ensure_shell_raises_when_prompt_not_observed(opnsense_client):
         opnsense_client._ensure_shell()
 
 
+# ---------- firmware/reboot operations delegate to their workflow modules ----------
+
+def test_check_updates_delegates_to_workflow(mocker, opnsense_client):
+    mock_workflow = mocker.patch(
+        "network_automation.platforms.opnsense.client.check_updates_workflow"
+    )
+    opnsense_client.check_updates(return_result=True)
+    mock_workflow.assert_called_once_with(opnsense_client, return_result=True)
+
+
+def test_update_delegates_to_workflow(mocker, opnsense_client):
+    mock_workflow = mocker.patch(
+        "network_automation.platforms.opnsense.client.update_workflow"
+    )
+    opnsense_client.update(return_result=True)
+    mock_workflow.assert_called_once_with(opnsense_client, return_result=True)
+
+
+def test_upgrade_delegates_to_workflow(mocker, opnsense_client):
+    mock_workflow = mocker.patch(
+        "network_automation.platforms.opnsense.client.upgrade_workflow"
+    )
+    opnsense_client.upgrade(return_result=True)
+    mock_workflow.assert_called_once_with(opnsense_client, return_result=True)
+
+
+def test_reboot_delegates_to_workflow(mocker, opnsense_client):
+    mock_workflow = mocker.patch(
+        "network_automation.platforms.opnsense.client.reboot_workflow"
+    )
+    opnsense_client.reboot()
+    mock_workflow.assert_called_once_with(opnsense_client)
+
+
+def test_wait_for_reconnect_delegates_to_workflow(mocker, opnsense_client):
+    mock_workflow = mocker.patch(
+        "network_automation.platforms.opnsense.client.wait_for_reconnect_workflow"
+    )
+    opnsense_client.wait_for_reconnect()
+    mock_workflow.assert_called_once_with(opnsense_client)
+
+
 # ---------- not-yet-implemented operations (skeleton) ----------
-
-def test_upgrade_not_implemented(opnsense_client):
-    with pytest.raises(NotImplementedError):
-        opnsense_client.upgrade()
-
-
-def test_reboot_not_implemented(opnsense_client):
-    with pytest.raises(NotImplementedError):
-        opnsense_client.reboot()
-
-
-def test_wait_for_reconnect_not_implemented(opnsense_client):
-    with pytest.raises(NotImplementedError):
-        opnsense_client.wait_for_reconnect()
-
 
 def test_backup_not_implemented(opnsense_client):
     with pytest.raises(NotImplementedError):
