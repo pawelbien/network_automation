@@ -61,6 +61,7 @@ def _stub_get_info(monkeypatch, versions):
 def firmware_client(opnsense_client):
     opnsense_client.firmware_poll_interval = 0
     opnsense_client.firmware_poll_timeout = 5
+    opnsense_client.reboot_grace_period = 0
     return opnsense_client
 
 
@@ -119,6 +120,49 @@ def test_update_completes_with_reboot(monkeypatch, mocker, firmware_client):
 
     assert result.metadata["rebooted"] is True
     wait_mock.assert_called_once()
+
+
+def test_update_waits_out_grace_period_and_disconnects_stale_conn_before_reboot(
+    monkeypatch, mocker, firmware_client
+):
+    """
+    Regression test (found live 2026-07-23): output_reboot() writes the
+    ***REBOOT*** marker, then `sleep 5`, then actually reboots - reconnecting
+    immediately risks landing on the still-alive, about-to-die session and
+    getting "Socket is closed" on the next command. _run_and_wait() must
+    sleep reboot_grace_period and attempt to close the stale connection
+    before nulling client.conn and calling wait_for_reconnect().
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+    firmware_client.reboot_grace_period = 12
+
+    stale_conn = MagicMock()
+    firmware_client.conn = stale_conn
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="...\n***REBOOT***",
+    )
+    sleep_mock = mocker.patch("network_automation.platforms.opnsense.upgrade.time.sleep")
+
+    def _reconnect():
+        firmware_client.conn = MagicMock()
+
+    mocker.patch.object(firmware_client, "wait_for_reconnect", side_effect=_reconnect)
+
+    update(firmware_client, return_result=True)
+
+    sleep_mock.assert_any_call(12)
+    stale_conn.disconnect.assert_called_once()
 
 
 def test_update_raises_when_backend_busy(monkeypatch, mocker, firmware_client):

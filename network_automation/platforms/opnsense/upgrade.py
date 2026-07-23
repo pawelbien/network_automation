@@ -96,6 +96,27 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
     if _has_reboot_marker(log_text):
         result.metadata["rebooted"] = True
+
+        # output_reboot() writes the ***REBOOT*** marker, then `sleep 5`,
+        # then rc.reboot - observed live (2026-07-23) to mean the device
+        # is still fully up for a few seconds after the marker appears.
+        # Without this grace period, wait_for_reconnect()'s first attempt
+        # can land on that still-alive, about-to-die session: the
+        # readiness probe succeeds, we call it reconnected, and the real
+        # reboot then kills that same connection moments later, surfacing
+        # as "Socket is closed" on the very next command (get_info() right
+        # after this function returns).
+        client.logger.info(
+            "Reboot required; waiting %ds for the backend's internal "
+            "delay before rc.reboot actually runs...",
+            client.reboot_grace_period,
+        )
+        time.sleep(client.reboot_grace_period)
+
+        try:
+            client.conn.disconnect()
+        except Exception:
+            pass
         client.conn = None
         client.wait_for_reconnect()
     elif _has_done_marker(log_text):

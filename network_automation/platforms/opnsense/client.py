@@ -40,6 +40,7 @@ class OPNsense(BaseClient):
         disabled_algorithms: dict | None = None,
         firmware_poll_interval: int = 15,
         firmware_poll_timeout: int = 3600,
+        reboot_grace_period: int = 15,
         reconnect_timeout: int = 300,
         reconnect_delay: int = 10,
         *,
@@ -69,6 +70,13 @@ class OPNsense(BaseClient):
                              OPNsenseFirmwareError (default 3600 - base/
                              kernel updates can run well past 10-30
                              minutes on slow hardware).
+        reboot_grace_period — seconds to wait after a ***REBOOT*** marker
+                             is seen before starting reconnect attempts
+                             (default 15). The backend writes the marker,
+                             then `sleep 5`, then actually reboots - a
+                             shorter grace period risks reconnecting to
+                             the still-alive, about-to-die session and
+                             mistaking it for the device being back up.
         reconnect_timeout   — seconds to wait for SSH after a reboot before
                              raising TimeoutError (default 300).
         reconnect_delay     — polling interval in seconds during reconnect
@@ -108,6 +116,7 @@ class OPNsense(BaseClient):
         # Firmware operation polling
         self.firmware_poll_interval = firmware_poll_interval
         self.firmware_poll_timeout = firmware_poll_timeout
+        self.reboot_grace_period = reboot_grace_period
 
         # Reconnect-after-reboot configuration
         self.reconnect_timeout = reconnect_timeout
