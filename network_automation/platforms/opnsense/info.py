@@ -7,11 +7,21 @@ OPNsense device information helpers.
 import re
 
 from network_automation.results import OperationResult
+from network_automation.platforms.opnsense.debug_log import debug_log
+
+
+def _send(client, command: str) -> str:
+    """Run a shell command, logging it at DEBUG level when
+    client.context.debug_log is enabled (see debug_log.py)."""
+    debug_log(client, "send_command: %s", command)
+    output = client.conn.send_command(command)
+    debug_log(client, "send_command response: %s", output)
+    return output
 
 
 def _get_hostname(client):
     """Read the device hostname. Mandatory field."""
-    output = client.conn.send_command("hostname")
+    output = _send(client, "hostname")
 
     hostname = output.strip()
     if not hostname:
@@ -22,7 +32,7 @@ def _get_hostname(client):
 
 def _get_opnsense_version(client):
     """Read the OPNsense version. Mandatory field."""
-    output = client.conn.send_command("opnsense-version")
+    output = _send(client, "opnsense-version")
 
     version = output.strip()
     if not version:
@@ -39,7 +49,7 @@ def _get_freebsd_version(client):
     command fails or the output is empty, instead of raising.
     """
     try:
-        output = client.conn.send_command("uname -r")
+        output = _send(client, "uname -r")
     except Exception:
         return None
 
@@ -75,7 +85,7 @@ def _get_uptime(client):
     "..., N user(s), load averages: a, b, c" shape.
     """
     try:
-        output = client.conn.send_command("uptime")
+        output = _send(client, "uptime")
     except Exception:
         return None, None
 
@@ -229,4 +239,5 @@ def read_info(client, *, return_result: bool = False):
 
     finally:
         result.mark_finished()
+        debug_log(client, "read_info() result.metadata: %s", result.metadata)
         client.disconnect()
