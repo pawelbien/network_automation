@@ -44,6 +44,8 @@ def main():
         print(f"{'=' * 60}")
         print(f"  unit: {i}")
         for key, value in unit.items():
+            if isinstance(value, tuple):
+                value = ", ".join(str(v) for v in value)
             print(f"      {key}: {value}")
 
     if result.duration_seconds is not None:

@@ -4,6 +4,8 @@
 OPNsense device information helpers.
 """
 
+import re
+
 from network_automation.results import OperationResult
 
 
@@ -44,17 +46,56 @@ def _get_freebsd_version(client):
     return output.strip() or None
 
 
+_UPTIME_DURATION_RE = re.compile(
+    r"^(?P<duration>.*?),\s*\d+\s+users?,\s*load averages:\s*(?P<loads>.*)$"
+)
+
+
 def _get_uptime(client):
     """
-    Read device uptime (raw BSD `uptime` output). Best-effort: returns None
-    if the command fails or the output is empty, instead of raising.
+    Read device uptime and load averages from BSD `uptime`. Best-effort:
+    returns (None, None) if the command fails or the output is empty,
+    instead of raising.
+
+    Full raw output looks like "11:13AM  up 54 mins, 1 user, load
+    averages: 0.58, 0.56, 0.54" (or "... up 10 days, 4:32, 1 user, ..."
+    for longer uptimes). The leading wall-clock time and the user count
+    are dropped; only the duration and the three load averages are kept.
+
+    The duration is returned exactly as BSD formats it - "N mins" (< 1h),
+    "H:MM" (1h-1 day), or "D days, H:MM" (>= 1 day) - rather than
+    converted to a single unit. BSD already scales the granularity to the
+    magnitude (so a multi-year uptime reads as "1125 days, 3:12", not an
+    unwieldy hour count), and reimplementing that conversion would just
+    add parsing surface for no benefit.
+
+    Returns (duration, load_averages) where load_averages is a
+    (1min, 5min, 15min) tuple of floats. Falls back to
+    (<trimmed output>, None) if the output doesn't match the expected
+    "..., N user(s), load averages: a, b, c" shape.
     """
     try:
         output = client.conn.send_command("uptime")
     except Exception:
-        return None
+        return None, None
 
-    return output.strip() or None
+    raw = output.strip()
+    if not raw:
+        return None, None
+
+    up_match = re.search(r"\bup\s+(.*)$", raw)
+    after_up = up_match.group(1).strip() if up_match else raw
+
+    match = _UPTIME_DURATION_RE.match(after_up)
+    if not match:
+        return after_up, None
+
+    duration = match.group("duration").strip()
+    load_averages = tuple(
+        float(value) for value in match.group("loads").split(",")
+    )
+
+    return duration, load_averages
 
 
 def get_info(client):
@@ -65,12 +106,13 @@ def get_info(client):
     {
         "units": [
             {
-                "id":                int,        # always 0
-                "role":              str,        # always "master"
+                "id":                int,                  # always 0
+                "role":              str,                  # always "master"
                 "hostname":          str,
                 "opnsense_version":  str,
-                "freebsd_version":   str | None,  # best-effort
-                "uptime":            str | None,  # best-effort
+                "freebsd_version":   str | None,            # best-effort
+                "uptime":            str | None,            # best-effort, e.g. "10 days, 4:32"
+                "load_averages":     tuple[float, float, float] | None,  # best-effort
             }
         ]
     }
@@ -83,13 +125,17 @@ def get_info(client):
     client.hostname = hostname
     client.opnsense_version = opnsense_version
 
+    freebsd_version = _get_freebsd_version(client)
+    uptime, load_averages = _get_uptime(client)
+
     unit = {
         "id": 0,
         "role": "master",
         "hostname": hostname,
         "opnsense_version": opnsense_version,
-        "freebsd_version": _get_freebsd_version(client),
-        "uptime": _get_uptime(client),
+        "freebsd_version": freebsd_version,
+        "uptime": uptime,
+        "load_averages": load_averages,
     }
 
     return {"units": [unit]}

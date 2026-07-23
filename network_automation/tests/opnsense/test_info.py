@@ -16,7 +16,9 @@ from network_automation.platforms.opnsense.info import (
 _HOSTNAME = "fw01.example.com"
 _OPNSENSE_VERSION = "OPNsense 24.7.2_1"
 _FREEBSD_VERSION = "14.1-RELEASE-p6"
-_UPTIME = "3:45PM up 10 days, 4:32, 1 user, load averages: 0.10, 0.08, 0.05"
+_UPTIME_RAW = "3:45PM up 10 days, 4:32, 1 user, load averages: 0.10, 0.08, 0.05"
+_UPTIME_DURATION = "10 days, 4:32"
+_LOAD_AVERAGES = (0.10, 0.08, 0.05)
 
 
 # ---------- Fixtures ----------
@@ -76,18 +78,41 @@ def test_get_freebsd_version_command_error_returns_none(opnsense_client, fake_co
     assert _get_freebsd_version(opnsense_client) is None
 
 
-def test_get_uptime_parsing(opnsense_client, fake_conn):
-    fake_conn.send_command.return_value = _UPTIME
+def test_get_uptime_parsing_returns_duration_and_loads(opnsense_client, fake_conn):
+    fake_conn.send_command.return_value = _UPTIME_RAW
     opnsense_client.conn = fake_conn
 
-    assert _get_uptime(opnsense_client) == _UPTIME
+    assert _get_uptime(opnsense_client) == (_UPTIME_DURATION, _LOAD_AVERAGES)
+
+
+def test_get_uptime_short_form(opnsense_client, fake_conn):
+    fake_conn.send_command.return_value = (
+        "11:13AM  up 54 mins, 1 user, load averages: 0.58, 0.56, 0.54"
+    )
+    opnsense_client.conn = fake_conn
+
+    assert _get_uptime(opnsense_client) == ("54 mins", (0.58, 0.56, 0.54))
 
 
 def test_get_uptime_empty_returns_none(opnsense_client, fake_conn):
     fake_conn.send_command.return_value = ""
     opnsense_client.conn = fake_conn
 
-    assert _get_uptime(opnsense_client) is None
+    assert _get_uptime(opnsense_client) == (None, None)
+
+
+def test_get_uptime_falls_back_to_raw_when_no_up_marker(opnsense_client, fake_conn):
+    fake_conn.send_command.return_value = "unexpected uptime output"
+    opnsense_client.conn = fake_conn
+
+    assert _get_uptime(opnsense_client) == ("unexpected uptime output", None)
+
+
+def test_get_uptime_falls_back_when_loads_not_found(opnsense_client, fake_conn):
+    fake_conn.send_command.return_value = "11:13AM  up 54 mins"
+    opnsense_client.conn = fake_conn
+
+    assert _get_uptime(opnsense_client) == ("54 mins", None)
 
 
 # ---------- get_info ----------
@@ -97,7 +122,7 @@ def test_get_info_parsing(opnsense_client, fake_conn):
         _HOSTNAME,
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
-        _UPTIME,
+        _UPTIME_RAW,
     ]
     opnsense_client.conn = fake_conn
 
@@ -111,7 +136,8 @@ def test_get_info_parsing(opnsense_client, fake_conn):
                 "hostname": _HOSTNAME,
                 "opnsense_version": _OPNSENSE_VERSION,
                 "freebsd_version": _FREEBSD_VERSION,
-                "uptime": _UPTIME,
+                "uptime": _UPTIME_DURATION,
+                "load_averages": _LOAD_AVERAGES,
             }
         ]
     }
@@ -139,7 +165,7 @@ def test_read_info_returns_units(monkeypatch, opnsense_client, fake_conn):
         _HOSTNAME,
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
-        _UPTIME,
+        _UPTIME_RAW,
     ]
 
     info = read_info(opnsense_client)
@@ -161,7 +187,7 @@ def test_read_info_returns_result(monkeypatch, opnsense_client, fake_conn):
         _HOSTNAME,
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
-        _UPTIME,
+        _UPTIME_RAW,
     ]
 
     result = read_info(opnsense_client, return_result=True)
@@ -184,7 +210,7 @@ def test_read_info_calls_ensure_shell(monkeypatch, opnsense_client, fake_conn):
         _HOSTNAME,
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
-        _UPTIME,
+        _UPTIME_RAW,
     ]
 
     read_info(opnsense_client)
