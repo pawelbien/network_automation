@@ -44,6 +44,20 @@ platform ↔ client ↔ Netmiko device_type
 
 This eliminates conditional logic in jobs and avoids cross-platform branching.
 
+**Exception:** `opnsense`. Netmiko has no native OPNsense driver, so the
+registry key (`opnsense`) and the internal Netmiko `device_type`
+(`"generic_termserver_ssh"`, chosen because it doesn't assert a prompt
+pattern during session setup) differ. This is a documentation-only
+deviation from the 1:1 mapping above — the factory/registry mechanism
+itself is unchanged, callers still only ever see `device_type="opnsense"`.
+
+OPNsense also has an SSH-specific quirk handled entirely inside its
+platform package (`platforms/opnsense/client.py`), analogous to Huawei
+VRP's `disabled_algorithms` handling: its console shows a numbered menu
+(`0) Logout` … `8) Shell`) instead of a shell prompt by default. The
+`skip_menu` constructor parameter (default `True`) controls whether the
+client selects "Shell" from that menu before running commands.
+
 ---
 
 ## Factory

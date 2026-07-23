@@ -14,6 +14,7 @@ Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
 - **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **OPNsense** — device information (`get_info`) only, over SSH/CLI (Netmiko, no native driver — see below); `upgrade`, `reboot`, `backup` exist as skeleton (`NotImplementedError`); use `device_type="opnsense"`
 
 ---
 
@@ -53,6 +54,11 @@ Not every operation is available on every platform.
 - File upload (`upload`) — push local files to the device via SFTP
 - Configuration backup and download (`backup`) — named on-device config snapshot (`save <filename>`) + SFTP download, with cleanup of old `nauto_`-prefixed snapshots
 - Firmware upgrade (`upgrade`) — firmware, patch, or both, single-unit devices (see below)
+
+### OPNsense
+
+- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime
+- `upgrade`, `reboot`, `wait_for_reconnect`, `backup` — public API exists but raises `NotImplementedError` (skeleton, not implemented yet)
 
 ---
 
@@ -169,6 +175,37 @@ Example output for a 2-member stack:
 }
 ```
 
+### OPNsense
+
+`get_info` reads `hostname`, `opnsense-version`, `uname -r`, and `uptime`
+over an SSH shell and returns a unified **unit structure**. OPNsense is
+always a single-unit device.
+
+```python
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"{unit['hostname']}: {unit['opnsense_version']} (FreeBSD {unit['freebsd_version']})")
+```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `hostname` | Device hostname |
+| `opnsense_version` | OPNsense version string |
+| `freebsd_version` | Underlying FreeBSD version, or `None` if unavailable (best-effort) |
+| `uptime` | Raw BSD `uptime` output, or `None` if unavailable (best-effort) |
+
+OPNsense's SSH console normally shows a numbered menu (`0) Logout` … `8)
+Shell`) instead of a shell prompt directly. The client assumes
+(`skip_menu=True`, the default) that the SSH account already lands in a
+shell; pass `skip_menu=False` for accounts that still see the console menu
+— the client then selects `shell_menu_option` (default `"8"`) before
+running any command. See `docs/architecture.md` for details.
+
 ---
 
 ## Basic Usage
@@ -235,6 +272,27 @@ CLI-style scripts live in `examples/huawei_vrp/`:
 - `run_command.py` — SSH key auth, multiple commands, formatted output
 - `read_info.py` — collect and print device information (version, ESN, startup image) per unit
 - `upgrade.py` — firmware and/or patch upgrade for single-unit devices (target versions + local `.cc`/`.pat` files)
+
+### OPNsense
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="opnsense",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+info = client.get_info()
+unit = info["units"][0]
+print(f"{unit['hostname']}: {unit['opnsense_version']}")
+```
+
+`examples/opnsense/read_info.py` shows the same, printed as a formatted
+summary. Only `get_info` is implemented so far — `upgrade`, `reboot`, and
+`backup` raise `NotImplementedError`.
 
 ---
 
@@ -464,6 +522,7 @@ Tests are designed to run without real network devices.
 - `docs/architecture.md` — architectural invariants and patterns
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
 - `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
+- `examples/opnsense/` — OPNsense usage examples (`read_info.py`)
 
 ---
 
