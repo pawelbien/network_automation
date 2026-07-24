@@ -14,7 +14,7 @@ Currently supported platforms:
 
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
 - **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
-- **OPNsense** — device information (`get_info`) only, over SSH/CLI (Netmiko, no native driver — see below); `upgrade`, `reboot`, `backup` exist as skeleton (`NotImplementedError`); use `device_type="opnsense"`
+- **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 
 ---
 
@@ -58,7 +58,10 @@ Not every operation is available on every platform.
 ### OPNsense
 
 - Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime
-- `upgrade`, `reboot`, `wait_for_reconnect`, `backup` — public API exists but raises `NotImplementedError` (skeleton, not implemented yet)
+- Update checking (`check_updates`) — read-only, never modifies the device
+- Update within the current release branch (`update`) and migration to a new branch (`upgrade`) — both drive the native `configctl firmware` backend; neither calls the other automatically
+- Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
+- Configuration backup (`backup`) — SFTP GET of the live `/conf/config.xml`; no on-device snapshot step (see below)
 
 ---
 
@@ -288,18 +291,33 @@ client = get_client(
 info = client.get_info()
 unit = info["units"][0]
 print(f"{unit['hostname']}: {unit['opnsense_version']}")
+
+# Check for available updates (read-only)
+client.check_updates()
+
+# Update within the current release branch; reboots only if the backend
+# decides a base/kernel update requires one
+client.update()
+
+# Migrate to a new release branch; does NOT call update() first
+client.upgrade()
+
+# Configuration backup: downloads the live /conf/config.xml via SFTP as
+# daily.xml — no on-device snapshot is created (see docs/architecture.md)
+client.backup("daily", download_dir="/tmp/backups")
 ```
 
-`examples/opnsense/read_info.py` shows the same, printed as a formatted
-summary. Only `get_info` is implemented so far — `upgrade`, `reboot`, and
-`backup` raise `NotImplementedError`.
+`examples/opnsense/read_info.py` shows `get_info`, printed as a formatted
+summary.
 
 ---
 
 ## Firmware Upgrade
 
-Firmware upgrade is implemented for **MikroTik RouterOS** and, in a reduced
-form, **Huawei VRP** (firmware and/or patch, single-unit devices — see below).
+Firmware upgrade is implemented for **MikroTik RouterOS**, in a reduced
+form for **Huawei VRP** (firmware and/or patch, single-unit devices — see
+below), and for **OPNsense** via its native `configctl firmware` backend
+(see below).
 
 Firmware upgrade requires **explicit configuration** of the delivery method.
 
@@ -431,6 +449,34 @@ before any configuration/apply step runs. Results are recorded in
 Not yet implemented (see `docs/architecture.md` for details): automatic
 rollback after a failed post-reboot validation, and multi-unit/stack
 upgrades.
+
+### OPNsense
+
+OPNsense's native firmware backend (`configctl firmware ...`) runs
+detached from the SSH/GUI session, synchronized via a lockfile — the
+client polls it to completion rather than tracking a live command
+stream. Three independent operations, none auto-chained:
+
+```python
+client.check_updates()   # configctl firmware check — read-only
+client.update()          # configctl firmware update — current branch
+client.upgrade()         # configctl firmware upgrade — new branch
+```
+
+`upgrade()` does not call `update()` first — if the device isn't up to
+date on its current branch, the backend may reject the migration; the
+caller decides the order. Both `update()` and `upgrade()` reboot only if
+the backend decides one is required; a reboot mid-operation (including a
+connection drop during it) is tolerated and reconnected automatically.
+
+Additional constructor parameters (all optional): `firmware_poll_interval`
+(15s), `firmware_poll_timeout` (3600s), `reboot_grace_period` (15s),
+`reconnect_timeout` (600s), `reconnect_delay` (10s).
+
+Configuration backup (`backup(name, download_dir=".")`) is a direct SFTP
+GET of `/conf/config.xml` — OPNsense keeps this file live and current at
+all times, so there is no separate on-device "save a snapshot" step (nor
+`nauto_`-prefixed on-device artifacts to clean up, unlike MikroTik/Huawei).
 
 ---
 
