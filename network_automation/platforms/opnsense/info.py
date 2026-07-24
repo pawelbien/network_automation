@@ -135,13 +135,16 @@ def _get_uptime(client):
 # caller pick an exact target build the way MikroTik's /tool fetch does,
 # so verification only checks that the branch/version moved forward.
 
-_BRANCH_RE = re.compile(r"^(\d+)\.(\d+)")
-_VERSION_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:_(\d+))?")
+# Unanchored - opnsense-version's actual output is decorated
+# ("OPNsense 26.1.11_10 (amd64)"), not a bare version string, so the
+# version substring must be found rather than matched from position 0.
+_BRANCH_RE = re.compile(r"(\d+)\.(\d+)")
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?(?:_(\d+))?")
 
 
 def normalize_branch(version: str) -> tuple[int, int]:
-    """Extract (major, minor) from an OPNsense version, e.g. "26.1.11_10" -> (26, 1)."""
-    match = _BRANCH_RE.match(version.strip())
+    """Extract (major, minor) from an OPNsense version, e.g. "OPNsense 26.1.11_10 (amd64)" -> (26, 1)."""
+    match = _BRANCH_RE.search(version.strip())
     if not match:
         raise ValueError(f"Cannot extract branch from OPNsense version: {version!r}")
     return (int(match.group(1)), int(match.group(2)))
@@ -155,10 +158,10 @@ def is_newer_branch(current_version: str, target_version: str) -> bool:
 def normalize_version(version: str) -> tuple[int, int, int, int]:
     """
     Extract (major, minor, patch, build) from an OPNsense version, e.g.
-    "26.1.11_10" -> (26, 1, 11, 10). patch/build default to 0 when absent
-    (e.g. "26.1" -> (26, 1, 0, 0)).
+    "OPNsense 26.1.11_10 (amd64)" -> (26, 1, 11, 10). patch/build default
+    to 0 when absent (e.g. "26.1" -> (26, 1, 0, 0)).
     """
-    match = _VERSION_RE.match(version.strip())
+    match = _VERSION_RE.search(version.strip())
     if not match:
         raise ValueError(f"Cannot parse OPNsense version: {version!r}")
     major, minor, patch, build = match.groups()

@@ -510,8 +510,14 @@ def test_update_failure_marks_result_and_reraises(monkeypatch, firmware_client):
 # -------------------------------------------------------
 
 def test_upgrade_detects_branch_change(monkeypatch, mocker, firmware_client):
+    """opnsense-version's real output is decorated ("OPNsense X.Y.Z_B
+    (amd64)"), not a bare version string - use that shape here so this
+    test actually exercises normalize_branch() against realistic input."""
     _stub_lifecycle(monkeypatch, firmware_client)
-    _stub_get_info(monkeypatch, ["26.1.11_10", "26.7"])
+    _stub_get_info(
+        monkeypatch,
+        ["OPNsense 26.1.11_10 (amd64)", "OPNsense 26.7 (amd64)"],
+    )
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.running",
@@ -538,7 +544,10 @@ def test_upgrade_detects_branch_change(monkeypatch, mocker, firmware_client):
 
 def test_upgrade_no_branch_change_reported(monkeypatch, mocker, firmware_client):
     _stub_lifecycle(monkeypatch, firmware_client)
-    _stub_get_info(monkeypatch, ["26.1.11_10", "26.1.11_10"])
+    _stub_get_info(
+        monkeypatch,
+        ["OPNsense 26.1.11_10 (amd64)", "OPNsense 26.1.11_10 (amd64)"],
+    )
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.running",

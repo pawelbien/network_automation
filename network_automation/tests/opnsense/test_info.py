@@ -10,6 +10,10 @@ from network_automation.platforms.opnsense.info import (
     _get_uptime,
     get_info,
     read_info,
+    normalize_branch,
+    is_newer_branch,
+    normalize_version,
+    is_newer_version,
 )
 
 
@@ -228,3 +232,59 @@ def test_read_info_propagates_and_marks_failure(monkeypatch, opnsense_client, fa
 
     with pytest.raises(ValueError):
         read_info(opnsense_client)
+
+
+# ---------- normalize_branch / is_newer_branch / normalize_version / is_newer_version ----------
+#
+# opnsense-version's real output is decorated ("OPNsense 26.1.11_10
+# (amd64)"), not a bare version string - these must extract the version
+# out of that, not just out of a bare "26.1.11_10".
+
+def test_normalize_branch_from_decorated_version():
+    assert normalize_branch("OPNsense 26.1.11_10 (amd64)") == (26, 1)
+
+
+def test_normalize_branch_from_bare_version():
+    assert normalize_branch("26.1") == (26, 1)
+
+
+def test_normalize_branch_raises_when_no_version_found():
+    with pytest.raises(ValueError, match="Cannot extract branch"):
+        normalize_branch("garbage")
+
+
+def test_is_newer_branch_true_across_decorated_versions():
+    assert is_newer_branch(
+        "OPNsense 26.1.11_10 (amd64)", "OPNsense 26.7 (amd64)"
+    )
+
+
+def test_is_newer_branch_false_within_same_branch():
+    assert not is_newer_branch(
+        "OPNsense 26.1 (amd64)", "OPNsense 26.1.11_10 (amd64)"
+    )
+
+
+def test_normalize_version_from_decorated_version():
+    assert normalize_version("OPNsense 26.1.11_10 (amd64)") == (26, 1, 11, 10)
+
+
+def test_normalize_version_defaults_patch_and_build_to_zero():
+    assert normalize_version("OPNsense 26.1 (amd64)") == (26, 1, 0, 0)
+
+
+def test_normalize_version_raises_when_no_version_found():
+    with pytest.raises(ValueError, match="Cannot parse OPNsense version"):
+        normalize_version("garbage")
+
+
+def test_is_newer_version_true_within_same_branch():
+    assert is_newer_version(
+        "OPNsense 26.1 (amd64)", "OPNsense 26.1.11_10 (amd64)"
+    )
+
+
+def test_is_newer_version_false_when_unchanged():
+    assert not is_newer_version(
+        "OPNsense 26.1.11_10 (amd64)", "OPNsense 26.1.11_10 (amd64)"
+    )
