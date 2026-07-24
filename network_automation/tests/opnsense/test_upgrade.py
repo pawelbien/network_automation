@@ -494,6 +494,48 @@ def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
     wait_mock.assert_called_once()
 
 
+def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
+    monkeypatch, mocker, firmware_client
+):
+    """
+    When reconnected_during_poll recovers real content from last_log()
+    that just lacks a ***DONE***/***REBOOT*** marker, the warning must
+    render it with real newlines (%s), not an escaped single-line repr
+    (%r) - a large recovered log shouldn't turn into one unreadable line.
+    """
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", Exception("Socket is closed"), "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.last_log",
+        return_value="line one\nline two\n",
+    )
+    firmware_client.wait_for_reconnect = MagicMock()
+    firmware_client.logger = MagicMock()
+
+    result = update(firmware_client, return_result=True)
+
+    assert result.metadata["rebooted"] is True
+    assert result.metadata["log"] == "line one\nline two\n"
+
+    msg, *args = firmware_client.logger.warning.call_args_list[-1].args
+    rendered = msg % tuple(args)
+    assert "line one\nline two" in rendered
+    assert "\\n" not in rendered
+
+
 def test_update_failure_marks_result_and_reraises(monkeypatch, firmware_client):
     _stub_lifecycle(monkeypatch, firmware_client)
     monkeypatch.setattr(

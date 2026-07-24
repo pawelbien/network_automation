@@ -241,11 +241,19 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         # Treating this as a hard failure would be wrong when the update
         # most likely succeeded; the caller's own post-call get_info()
         # is the real verification of the outcome.
-        client.logger.warning(
-            "%s: connection was lost and reconnected while polling; "
-            "assuming a reboot occurred (log unrecoverable: %r)",
-            action_name, log_text,
-        )
+        if log_text.strip():
+            client.logger.warning(
+                "%s: connection was lost and reconnected while polling; "
+                "assuming a reboot occurred (recovered log has no "
+                "***DONE***/***REBOOT*** marker):\n%s",
+                action_name, log_text,
+            )
+        else:
+            client.logger.warning(
+                "%s: connection was lost and reconnected while polling; "
+                "assuming a reboot occurred (no log recovered)",
+                action_name,
+            )
         result.metadata["rebooted"] = True
     else:
         raise OPNsenseFirmwareError(
