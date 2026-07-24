@@ -41,7 +41,7 @@ class OPNsense(BaseClient):
         firmware_poll_interval: int = 15,
         firmware_poll_timeout: int = 3600,
         reboot_grace_period: int = 15,
-        reconnect_timeout: int = 300,
+        reconnect_timeout: int = 600,
         reconnect_delay: int = 10,
         *,
         context: ExecutionContext | None = None,
@@ -78,7 +78,7 @@ class OPNsense(BaseClient):
                              the still-alive, about-to-die session and
                              mistaking it for the device being back up.
         reconnect_timeout   — seconds to wait for SSH after a reboot before
-                             raising TimeoutError (default 300).
+                             raising TimeoutError (default 600).
         reconnect_delay     — polling interval in seconds during reconnect
                              wait (default 10).
         """
