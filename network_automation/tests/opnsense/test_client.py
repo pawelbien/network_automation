@@ -96,8 +96,11 @@ def test_wait_for_reconnect_delegates_to_workflow(mocker, opnsense_client):
     mock_workflow.assert_called_once_with(opnsense_client)
 
 
-# ---------- not-yet-implemented operations (skeleton) ----------
-
-def test_backup_not_implemented(opnsense_client):
-    with pytest.raises(NotImplementedError):
-        opnsense_client.backup("daily")
+def test_backup_delegates_to_workflow(mocker, opnsense_client):
+    mock_workflow = mocker.patch(
+        "network_automation.platforms.opnsense.client.run_backup"
+    )
+    opnsense_client.backup("daily", return_result=True, download_dir="/tmp")
+    mock_workflow.assert_called_once_with(
+        opnsense_client, "daily", return_result=True, download_dir="/tmp"
+    )
