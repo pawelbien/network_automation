@@ -32,6 +32,7 @@ def test_no_file_created_when_debug_log_dir_is_none(tmp_path):
         dlog.raw("some line")
         dlog.event("some event")
         dlog.exception(RuntimeError("boom"))
+        assert dlog.path is None
 
     assert list(tmp_path.iterdir()) == []
 
@@ -58,12 +59,20 @@ def test_unwritable_directory_never_raises(tmp_path, monkeypatch):
         dlog.raw("some line")
         dlog.event("some event")
         dlog.exception(RuntimeError("boom"))
+        assert dlog.path is None
     # no exception propagated - test passing is the assertion
 
 
 # -------------------------------------------------------
 # Normal writing
 # -------------------------------------------------------
+
+def test_path_is_exposed_when_a_file_is_actually_written(tmp_path):
+    client = _client(tmp_path, host="10.0.0.1")
+
+    with open_detail_log(client, "update") as dlog:
+        assert dlog.path == _log_path(tmp_path, "10.0.0.1", "update")
+
 
 def test_raw_and_event_and_exception_are_written(tmp_path):
     client = _client(tmp_path, host="10.0.0.1")

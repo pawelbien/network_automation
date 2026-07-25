@@ -109,6 +109,14 @@ def _poll_call(client, fn, action_name: str, result: OperationResult, dlog):
 _KEEPALIVE_INTERVAL = 60
 
 
+def _log_detail_log_path(client, result: OperationResult) -> None:
+    """Log where the detail log file was saved, as the final line of the
+    operation - a no-op when none was written (debug_log_dir unset)."""
+    detail_log_path = result.metadata.get("detail_log_path")
+    if detail_log_path:
+        client.logger.info("Detail log saved to: %s", detail_log_path)
+
+
 def _new_status_suffix(current_text: str, last_len: int) -> tuple[str, int]:
     """
     Return (new_suffix, updated_len) for status(), which returns the
@@ -155,7 +163,13 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     run. "Waiting for device..."/"Device is back online." remain owned by
     reboot.py's wait_for_reconnect(), reused unchanged.
 
-    Sets result.metadata["log"] and result.metadata["rebooted"].
+    Sets result.metadata["log"] and result.metadata["rebooted"], and
+    result.metadata["detail_log_path"] (only if a detail log file was
+    actually written - see detail_log.py). Callers log that path
+    themselves, at the very end of the whole operation - see update()/
+    upgrade()/check_updates() below - rather than here, so it reads as
+    the final line of the operation instead of appearing mid-sequence,
+    before the post-operation verification/completion messages.
     """
     with open_detail_log(client, action_name) as dlog:
         try:
@@ -163,6 +177,9 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         except Exception as exc:
             dlog.exception(exc)
             raise
+        finally:
+            if dlog.path:
+                result.metadata["detail_log_path"] = dlog.path
 
 
 def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
@@ -379,6 +396,7 @@ def check_updates(client, *, return_result: bool = False):
 
         result.message = "Update check completed"
         client.logger.info(result.message)
+        _log_detail_log_path(client, result)
         return result if return_result else None
 
     except Exception as exc:
@@ -423,6 +441,7 @@ def update(client, *, return_result: bool = False):
         else:
             result.message = f"Already up to date: {final_version}. No update was needed."
         client.logger.info(result.message)
+        _log_detail_log_path(client, result)
         return result if return_result else None
 
     except Exception as exc:
@@ -478,6 +497,7 @@ def upgrade(client, *, return_result: bool = False):
                 "No upgrade was needed."
             )
         client.logger.info(result.message)
+        _log_detail_log_path(client, result)
         return result if return_result else None
 
     except Exception as exc:

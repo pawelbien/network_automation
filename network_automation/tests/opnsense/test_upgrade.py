@@ -662,6 +662,7 @@ def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrite
             "second run content\n***GOT REQUEST***\n...\n***DONE***",
         ],
     )
+    firmware_client.logger = MagicMock()
 
     update(firmware_client, return_result=True)
     log_path = tmp_path / "10.0.0.1_update.log"
@@ -669,10 +670,40 @@ def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrite
     assert "[1/1] Fetching foo.pkg: .... done" in first_content
     assert "STAGE: Downloading packages..." in first_content
 
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert info_messages[-1] == f"Detail log saved to: {log_path}"
+
     update(firmware_client, return_result=True)
     second_content = log_path.read_text()
     assert "[1/1] Fetching foo.pkg" not in second_content
     assert "second run content" in second_content
+
+
+def test_update_does_not_log_detail_log_path_when_debug_log_dir_is_none(
+    monkeypatch, mocker, firmware_client
+):
+    firmware_client.debug_log_dir = None
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="***GOT REQUEST***\n...\n***DONE***",
+    )
+    firmware_client.logger = MagicMock()
+
+    update(firmware_client, return_result=True)
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert not any("Detail log saved to:" in m for m in info_messages)
 
 
 # -------------------------------------------------------

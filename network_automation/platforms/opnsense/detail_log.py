@@ -43,8 +43,9 @@ class DetailLog:
     raise; construct via open_detail_log() rather than directly.
     """
 
-    def __init__(self, file_handle) -> None:
+    def __init__(self, file_handle, path: str | None = None) -> None:
         self._fh = file_handle
+        self.path = path
 
     def _write(self, text: str) -> None:
         if self._fh is None:
@@ -95,7 +96,7 @@ class _NullDetailLog(DetailLog):
     """No-op stand-in used when debug_log_dir is unset or unusable."""
 
     def __init__(self) -> None:
-        super().__init__(None)
+        super().__init__(None, None)
 
 
 @contextmanager
@@ -111,18 +112,19 @@ def open_detail_log(client, action_name: str):
     """
     debug_log_dir = getattr(client, "debug_log_dir", None)
     file_handle = None
+    path = None
 
     if debug_log_dir:
         try:
             os.makedirs(debug_log_dir, exist_ok=True)
             filename = f"{_slug(_device_label(client))}_{_slug(action_name)}.log"
-            file_handle = open(
-                os.path.join(debug_log_dir, filename), "w", encoding="utf-8"
-            )
+            path = os.path.join(debug_log_dir, filename)
+            file_handle = open(path, "w", encoding="utf-8")
         except Exception:
             file_handle = None
+            path = None
 
-    dlog = DetailLog(file_handle) if file_handle is not None else _NullDetailLog()
+    dlog = DetailLog(file_handle, path) if file_handle is not None else _NullDetailLog()
     try:
         yield dlog
     finally:
