@@ -311,6 +311,65 @@ that upgrade semantics are always explicit.
 
 ---
 
+## Progress Reporting for Long-Running Backend Operations
+
+Some firmware operations run as a **detached backend job** polled over an
+existing session rather than a command whose output streams back inline
+(OPNsense's `configctl firmware update`/`upgrade` is the reference case -
+see `platforms/opnsense/upgrade.py`'s module docstring). Forwarding every
+polled line straight to the operation's logger doesn't scale: a real
+transcript runs to 1000+ lines (dependency resolution, per-package
+download/install progress, migration scripts), which is fine for a local
+CLI's stdout but unusable as a Nautobot Job log.
+
+The pattern splits into four decoupled components:
+
+- **SSH output reader** — the poll loop itself (e.g. `_run_and_wait()`),
+  responsible only for talking to the transport (polling, reconnecting,
+  diffing accumulated output into new lines) and handing each complete
+  line to the next two components. Knows nothing about what the lines mean.
+- **Progress parser / state machine** — a pure, I/O-free component (e.g.
+  `platforms/opnsense/progress.py`'s `ProgressParser`) that takes one line
+  of text and returns at most one stage-transition message. Detects phases
+  from stable, structural anchors (regex on command-output shape, e.g.
+  `^\[\d+/\d+\]`) rather than exact package names/counts, so it keeps
+  working across future firmware releases without changes. Monotonic by
+  design: stages only move forward, so out-of-order or repeated anchor
+  matches can't make an already-announced stage disappear or repeat. A
+  `reset()` starts a fresh epoch - used when the underlying device
+  restarts mid-operation, so a legitimately new run (e.g. repositories
+  being re-resolved after a reboot) isn't mistaken for a regression.
+- **User-facing progress logger** — the operation's normal logger (e.g.
+  Nautobot's Job logger). Only ever sees stage-transition messages plus an
+  occasional keepalive (e.g. "Still working...", emitted when nothing new
+  has happened for ~60s) - never raw output. This is what keeps Job logs
+  small regardless of how verbose the underlying transcript is.
+- **Detailed debug logger** — a separate, opt-in, per-device diagnostic
+  file (e.g. `platforms/opnsense/detail_log.py`'s `DetailLog`) that
+  captures every raw line, reconnect attempt, and exception (with full
+  traceback), overwritten at the start of each new operation for that
+  device. Never forwarded to the user-facing logger; exists purely for
+  local troubleshooting. Best-effort by construction - a failure to open
+  or write the file degrades to a silent no-op rather than aborting an
+  operation that is otherwise succeeding.
+
+A signal that isn't observable as a line of text (e.g. a dropped SSH
+session with no textual marker at all) cannot be represented by the
+parser's line-in/message-out contract, and shouldn't be forced into it -
+report it directly from the poll loop instead, once the actual outcome is
+known. OPNsense's reboot detection is the concrete example: a mid-poll
+reconnect only *might* indicate a reboot (the same disruption can come
+from something as mundane as sshd restarting while its own package is
+replaced), so the parser's epoch is reset eagerly on any reconnect
+(cheap and safe even if it turns out to be a false alarm), but the
+user-facing "Reboot detected." message is only logged once the poll loop
+concludes - from whichever confirms it actually happened.
+
+A future platform with a similarly detached/polled backend operation
+should reuse this shape rather than inventing a new one.
+
+---
+
 ## Bootloader (RouterBOARD) Upgrade Model
 
 Some platforms (e.g. MikroTik RouterOS) support a separate
@@ -457,14 +516,25 @@ tests/
 │   ├── test_run.py              # ← run.py
 │   ├── test_upgrade.py          # ← upgrade.py
 │   └── test_upload.py           # ← upload.py
-└── huawei_vrp/
-    ├── conftest.py              # huawei_client fixture
+├── huawei_vrp/
+│   ├── conftest.py              # huawei_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_download.py         # ← download.py
+│   ├── test_info.py             # ← info.py
+│   ├── test_run.py              # ← run.py
+│   ├── test_upload.py           # ← upload.py
+│   ├── test_version.py          # ← version.py
+│   └── test_upgrade.py          # ← upgrade.py
+└── opnsense/
+    ├── conftest.py              # opnsense_client fixture
     ├── test_backup.py           # ← backup.py
-    ├── test_download.py         # ← download.py
+    ├── test_client.py           # ← client.py
+    ├── test_debug_log.py        # ← debug_log.py
+    ├── test_detail_log.py       # ← detail_log.py
+    ├── test_firmware.py         # ← firmware.py
     ├── test_info.py             # ← info.py
-    ├── test_run.py              # ← run.py
-    ├── test_upload.py           # ← upload.py
-    ├── test_version.py          # ← version.py
+    ├── test_progress.py         # ← progress.py
+    ├── test_reboot.py           # ← reboot.py
     └── test_upgrade.py          # ← upgrade.py
 ```
 
