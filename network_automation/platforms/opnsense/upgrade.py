@@ -194,6 +194,7 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
 
     parser = ProgressParser()
     parser_reset_for_reconnect = False
+    reboot_marker_seen_live = False
 
     def _announce_reboot_detected():
         """
@@ -209,7 +210,18 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
         dlog.event("STAGE: Reboot detected.")
 
     def _emit(line):
+        nonlocal reboot_marker_seen_live
         dlog.raw(line)
+        if _has_reboot_marker(line):
+            # Seen live, from the device's own accumulating status() text,
+            # before any disconnect - unlike the post-loop marker check
+            # below, this can't be erased by /tmp being wiped on reboot,
+            # since it's observed the instant it's written. Recorded for
+            # the "reconnected, no marker recovered" ambiguous branch,
+            # which otherwise can't tell "the reboot definitely happened,
+            # we just lost the lockfile evidence for it" apart from a
+            # genuinely unexplained disconnect.
+            reboot_marker_seen_live = True
         message = parser.feed_line(line)
         if message:
             client._safe_log_info(message)
@@ -298,6 +310,7 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
 
         time.sleep(client.firmware_poll_interval)
 
+    result.metadata["reboot_marker_seen_live"] = reboot_marker_seen_live
     log_text = _poll_call(client, firmware.status, action_name, result, dlog)
 
     if not log_text.strip() or (
@@ -345,41 +358,57 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
     elif _has_done_marker(log_text):
         result.metadata["rebooted"] = False
     elif result.metadata.get("reconnected_during_poll"):
-        # No marker in either log, but we know the connection was lost
-        # and reconnected while polling - most likely the device
-        # rebooted before we could observe the marker being written
-        # (LOCKFILE lives under /tmp, wiped by reboot; a reboot-required
-        # completion may not persist to LOGFILE either - see the
-        # ***REBOOT*** branch above vs. output_done()'s copy step).
-        # Treating this as a hard failure would be wrong when the update
-        # most likely succeeded; the caller's own post-call get_info()
-        # is the real verification of the outcome.
+        # No marker in either log recovered *after* reconnecting, but we
+        # know the connection was lost and reconnected while polling -
+        # most likely the device rebooted before we could observe the
+        # marker persisting (LOCKFILE lives under /tmp, wiped by reboot; a
+        # reboot-required completion may not persist to LOGFILE either -
+        # see the ***REBOOT*** branch above vs. output_done()'s copy
+        # step). Treating this as a hard failure would be wrong when the
+        # update most likely succeeded; the caller's own post-call
+        # get_info() is the real verification of the outcome.
+        #
+        # reboot_marker_seen_live (set in _emit(), above) tells the two
+        # possible causes apart: if the marker WAS seen in the live
+        # status() feed before the disconnect, the reboot is confirmed,
+        # not assumed - the disconnect is simply what a real rc.reboot
+        # does, and the fresh post-reconnect read losing the marker is
+        # expected (the very reboot it announced wiped /tmp). Only when
+        # the marker was never observed at all is this genuinely a guess
+        # from the disconnect alone.
+        #
         # INFO, not WARNING: reconnecting mid-poll and inferring a reboot
-        # from that (rather than a marker) is an expected outcome here,
-        # not an anomaly - see _poll_call()'s matching comment. The
-        # recovered log itself can be the device's *entire* transcript
-        # (e.g. everything that ran while we were disconnected/
-        # reconnecting) - too large for the milestone-only INFO logger,
-        # so only a short note goes there; the full recovered text goes
-        # to the detail log file instead.
-        if log_text.strip():
+        # from that is an expected outcome here, not an anomaly - see
+        # _poll_call()'s matching comment. The recovered log itself can be
+        # the device's *entire* transcript (e.g. everything that ran
+        # while we were disconnected/reconnecting) - too large for the
+        # milestone-only INFO logger, so only a short note goes there; the
+        # full recovered text goes to the detail log file instead.
+        if reboot_marker_seen_live:
+            client.logger.info(
+                "%s: reboot confirmed (***REBOOT*** marker observed "
+                "before the connection dropped; the post-reconnect log "
+                "no longer shows it because the reboot itself wiped it).",
+                action_name,
+            )
+        elif log_text.strip():
             client.logger.info(
                 "%s: connection was lost and reconnected while polling; "
                 "assuming a reboot occurred (recovered log has no "
                 "***DONE***/***REBOOT*** marker).",
                 action_name,
             )
-            dlog.event(
-                "%s: connection was lost and reconnected while polling; "
-                "assuming a reboot occurred - recovered log (no "
-                "***DONE***/***REBOOT*** marker):\n%s",
-                action_name, log_text,
-            )
         else:
             client.logger.info(
                 "%s: connection was lost and reconnected while polling; "
                 "assuming a reboot occurred (no log recovered)",
                 action_name,
+            )
+        if log_text.strip():
+            dlog.event(
+                "%s: reconnected during poll (reboot_marker_seen_live=%s); "
+                "recovered log (no ***DONE***/***REBOOT*** marker):\n%s",
+                action_name, reboot_marker_seen_live, log_text,
             )
         result.metadata["rebooted"] = True
         _announce_reboot_detected()
