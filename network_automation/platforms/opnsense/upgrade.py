@@ -137,11 +137,16 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     Reboot detection/reporting ("Reboot detected.") is NOT handled by the
     parser: the only observed real-world signal is a dropped connection
     mid-poll with no textual marker at all (see _poll_call()), which isn't
-    something a line-in/message-out parser can represent. It's reported
-    here instead, exactly once per call (reboot_notice_emitted), whichever
-    of the two possible triggers fires first - a reconnect during the poll
-    loop, or a ***REBOOT*** marker discovered only after the loop exits.
-    "Waiting for device..."/"Device is back online." remain owned by
+    something a line-in/message-out parser can represent, and a dropped
+    connection alone doesn't prove a reboot happened (e.g. sshd restarting
+    while its own package is replaced can drop the session with the
+    device never rebooting at all). So it's reported only once the final
+    outcome is known - from the post-loop ***REBOOT***-marker branch, or
+    the "reconnected but no marker recovered" ambiguous branch - never
+    eagerly mid-loop. A mid-loop reconnect does eagerly reset the parser's
+    epoch, though (see parser_reset_for_reconnect below), since if it does
+    turn out to be a real reboot, later lines describe a legitimately new
+    run. "Waiting for device..."/"Device is back online." remain owned by
     reboot.py's wait_for_reconnect(), reused unchanged.
 
     Sets result.metadata["log"] and result.metadata["rebooted"].
@@ -165,16 +170,20 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
     dlog.event("%s started: %s", action_name, ack)
 
     parser = ProgressParser()
-    reboot_notice_emitted = False
+    parser_reset_for_reconnect = False
 
-    def _report_reboot_detected():
-        nonlocal reboot_notice_emitted
-        if reboot_notice_emitted:
-            return
+    def _announce_reboot_detected():
+        """
+        User-facing "Reboot detected." - only called once the final
+        outcome is known (see the post-loop marker handling below), never
+        eagerly on every mid-poll reconnect: a dropped connection during
+        polling does not always mean the device rebooted (e.g. sshd
+        itself restarting while its own package is being replaced can
+        drop the session with the backend job - and the device - both
+        still very much up; see test_update_reconnects_when_connection_lost_mid_poll).
+        """
         client._safe_log_info("Reboot detected.")
         dlog.event("STAGE: Reboot detected.")
-        parser.reset()
-        reboot_notice_emitted = True
 
     def _emit(line):
         dlog.raw(line)
@@ -193,8 +202,23 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
     while True:
         running_state = _poll_call(client, firmware.running, action_name, result, dlog)
 
-        if result.metadata.get("reconnected_during_poll") and not reboot_notice_emitted:
-            _report_reboot_detected()
+        if result.metadata.get("reconnected_during_poll") and not parser_reset_for_reconnect:
+            # A reboot is only *possible* here, not confirmed (see
+            # _announce_reboot_detected()'s docstring) - but if the device
+            # did reboot, any further output describes a new run (e.g.
+            # the repository catalogue update can legitimately happen
+            # again), so the parser's epoch is reset regardless. Harmless
+            # in the rare false-alarm case (a sshd restart with no actual
+            # reboot): worst case, one already-seen stage gets announced
+            # a second time - a minor cosmetic duplicate, not raw-output
+            # spam, and far cheaper than missing a real post-reboot stage.
+            parser.reset()
+            dlog.event(
+                "%s: connection was reconnected mid-poll; progress parser "
+                "epoch reset in case a reboot occurred",
+                action_name,
+            )
+            parser_reset_for_reconnect = True
             last_progress_at = time.monotonic()
 
         if running_state == "ready":
@@ -272,7 +296,7 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
 
     if _has_reboot_marker(log_text):
         result.metadata["rebooted"] = True
-        _report_reboot_detected()
+        _announce_reboot_detected()
 
         # output_reboot() writes the marker, then `sleep 5`, then
         # rc.reboot - the device is still up for a few seconds after the
@@ -323,6 +347,7 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
                 action_name,
             )
         result.metadata["rebooted"] = True
+        _announce_reboot_detected()
     else:
         raise OPNsenseFirmwareError(
             f"{action_name} log ended without ***DONE*** or ***REBOOT***: "

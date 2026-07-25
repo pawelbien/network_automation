@@ -107,9 +107,9 @@ def firmware_client(opnsense_client):
 def test_update_holds_back_partial_line_until_newline_arrives(monkeypatch, mocker, firmware_client):
     """
     status() can return output mid-line (e.g. progress dots with no
-    trailing newline yet) - this must be held back and only logged once
-    a newline completes the line, so one growing line doesn't get split
-    across multiple log entries.
+    trailing newline yet) - this must be held back and only fed to the
+    progress parser once a newline completes the line, so a still-growing
+    line can't trigger a premature/duplicate stage announcement.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
@@ -126,9 +126,9 @@ def test_update_holds_back_partial_line_until_newline_arrives(monkeypatch, mocke
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.status",
         side_effect=[
-            "Extracting foo: ..",
-            "Extracting foo: .... done\n",
-            "Extracting foo: .... done\n***GOT REQUEST***\n...\n***DONE***",
+            "[1/1] Fetching foo.pkg: ..",
+            "[1/1] Fetching foo.pkg: .... done\n",
+            "[1/1] Fetching foo.pkg: .... done\n***GOT REQUEST***\n...\n***DONE***",
         ],
     )
     firmware_client.logger = MagicMock()
@@ -136,15 +136,15 @@ def test_update_holds_back_partial_line_until_newline_arrives(monkeypatch, mocke
     update(firmware_client, return_result=True)
 
     info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
-    assert not any(m == "Extracting foo: .." for m in info_messages)
-    assert any("Extracting foo: .... done" in m for m in info_messages)
+    assert not any("Fetching foo.pkg" in m for m in info_messages)
+    assert info_messages.count("Downloading packages...") == 1
 
 
-def test_update_logs_heartbeat_only_after_60s_without_new_output(monkeypatch, mocker, firmware_client):
+def test_update_logs_keepalive_only_after_60s_without_progress(monkeypatch, mocker, firmware_client):
     """
-    While status() output isn't changing, no periodic "in progress"
-    message should be logged - only a heartbeat, and only once per ~60s
-    of silence, not on every poll.
+    While status() output isn't producing a new stage transition, no
+    periodic progress message should be logged - only a keepalive, and
+    only once per ~60s of silence, not on every poll.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
@@ -173,10 +173,8 @@ def test_update_logs_heartbeat_only_after_60s_without_new_output(monkeypatch, mo
     update(firmware_client, return_result=True)
 
     info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
-    heartbeats = [m for m in info_messages if "still running" in m]
-    assert len(heartbeats) == 1
-    assert "without new output" in heartbeats[0]
-    assert not any("in progress" in m for m in info_messages)
+    keepalives = [m for m in info_messages if m == "Still working..."]
+    assert len(keepalives) == 1
 
 
 def test_update_completes_without_reboot(monkeypatch, mocker, firmware_client):
@@ -225,11 +223,15 @@ def test_update_completes_with_reboot(monkeypatch, mocker, firmware_client):
         return_value="...\n***REBOOT***",
     )
     wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
 
     result = update(firmware_client, return_result=True)
 
     assert result.metadata["rebooted"] is True
     wait_mock.assert_called_once()
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert info_messages.count("Reboot detected.") == 1
 
 
 def test_update_waits_out_grace_period_and_disconnects_stale_conn_before_reboot(
@@ -444,12 +446,20 @@ def test_update_reconnects_when_connection_lost_mid_poll(monkeypatch, mocker, fi
         return_value="***GOT REQUEST***\n...\n***DONE***",
     )
     wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
 
     result = update(firmware_client, return_result=True)
 
     assert result.success is True
     assert result.metadata["rebooted"] is False
     wait_mock.assert_called_once()
+
+    # A dropped connection mid-poll doesn't necessarily mean a reboot
+    # happened (see the module docstring above) - the final log here has
+    # a ***DONE*** marker, so "Reboot detected." must NOT be reported even
+    # though the connection did have to reconnect once.
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert "Reboot detected." not in info_messages
 
 
 def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
@@ -485,6 +495,7 @@ def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
         return_value="",
     )
     wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
 
     result = update(firmware_client, return_result=True)
 
@@ -492,6 +503,9 @@ def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
     assert result.metadata["rebooted"] is True
     assert result.metadata["reconnected_during_poll"] is True
     wait_mock.assert_called_once()
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert info_messages.count("Reboot detected.") == 1
 
 
 def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
@@ -547,6 +561,78 @@ def test_update_failure_marks_result_and_reraises(monkeypatch, firmware_client):
         update(firmware_client, return_result=True)
 
 
+def test_update_logs_verifying_installation_and_completion_bookends(
+    monkeypatch, mocker, firmware_client
+):
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="***GOT REQUEST***\n...\n***DONE***",
+    )
+    firmware_client.logger = MagicMock()
+
+    update(firmware_client, return_result=True)
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert "Verifying installation..." in info_messages
+    assert "Update completed successfully." in info_messages
+    assert (
+        info_messages.index("Verifying installation...")
+        < info_messages.index("Update completed successfully.")
+    )
+
+
+def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrites(
+    monkeypatch, mocker, firmware_client, tmp_path
+):
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10", "26.1", "26.1.11_10"])
+    firmware_client.debug_log_dir = str(tmp_path)
+    firmware_client.host = "10.0.0.1"
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "busy", "ready", "ready", "busy", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.time.sleep",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        side_effect=[
+            "[1/1] Fetching foo.pkg: .... done\n***GOT REQUEST***\n...\n***DONE***",
+            "[1/1] Fetching foo.pkg: .... done\n***GOT REQUEST***\n...\n***DONE***",
+            "second run content\n***GOT REQUEST***\n...\n***DONE***",
+            "second run content\n***GOT REQUEST***\n...\n***DONE***",
+        ],
+    )
+
+    update(firmware_client, return_result=True)
+    log_path = tmp_path / "10.0.0.1_update.log"
+    first_content = log_path.read_text()
+    assert "[1/1] Fetching foo.pkg: .... done" in first_content
+    assert "STAGE: Downloading packages..." in first_content
+
+    update(firmware_client, return_result=True)
+    second_content = log_path.read_text()
+    assert "[1/1] Fetching foo.pkg" not in second_content
+    assert "second run content" in second_content
+
+
 # -------------------------------------------------------
 # upgrade()
 # -------------------------------------------------------
@@ -574,6 +660,7 @@ def test_upgrade_detects_branch_change(monkeypatch, mocker, firmware_client):
         return_value="...\n***REBOOT***",
     )
     wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
 
     result = upgrade(firmware_client, return_result=True)
 
@@ -582,6 +669,9 @@ def test_upgrade_detects_branch_change(monkeypatch, mocker, firmware_client):
     assert result.metadata["branch_changed"] is True
     assert result.metadata["rebooted"] is True
     wait_mock.assert_called_once()
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert info_messages.count("Reboot detected.") == 1
 
 
 def test_upgrade_no_branch_change_reported(monkeypatch, mocker, firmware_client):
