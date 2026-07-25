@@ -43,6 +43,7 @@ class OPNsense(BaseClient):
         reboot_grace_period: int = 15,
         reconnect_timeout: int = 600,
         reconnect_delay: int = 10,
+        debug_log_dir: str | None = None,
         *,
         context: ExecutionContext | None = None,
     ):
@@ -81,6 +82,14 @@ class OPNsense(BaseClient):
                              raising TimeoutError (default 600).
         reconnect_delay     — polling interval in seconds during reconnect
                              wait (default 10).
+        debug_log_dir        — directory for the detailed per-operation
+                             diagnostic log file (every raw line received
+                             during update()/upgrade()/check_updates(),
+                             reconnect attempts, exceptions with stack
+                             traces). None (default) disables it entirely
+                             - opt-in, matching context.debug_log's
+                             default. Never forwarded to context.logger;
+                             see platforms/opnsense/detail_log.py.
         """
         # Initialize shared BaseClient state (context, logger, retry config)
         super().__init__(
@@ -121,6 +130,9 @@ class OPNsense(BaseClient):
         # Reconnect-after-reboot configuration
         self.reconnect_timeout = reconnect_timeout
         self.reconnect_delay = reconnect_delay
+
+        # Detailed per-operation diagnostic log file (opt-in; see detail_log.py)
+        self.debug_log_dir = debug_log_dir
 
         # Runtime state, populated by get_info()
         self.hostname = None
