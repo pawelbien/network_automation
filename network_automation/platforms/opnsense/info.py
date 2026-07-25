@@ -192,10 +192,9 @@ def get_info(client):
         ]
     }
     """
-    client.logger.info("Reading system info...")
-
     hostname = _get_hostname(client)
     client.logger.info("Hostname: %s", hostname)
+    client.logger.info("Reading system info...")
     opnsense_version = _get_opnsense_version(client)
 
     client.hostname = hostname
