@@ -42,6 +42,7 @@ from network_automation.platforms.opnsense.info import (
     get_info,
     normalize_branch,
     is_newer_branch,
+    is_newer_version,
 )
 from network_automation.platforms.opnsense.progress import ProgressParser
 
@@ -379,7 +380,7 @@ def check_updates(client, *, return_result: bool = False):
             _run_and_wait(client, firmware.check, "check", result)
 
         result.message = "Update check completed"
-        client.logger.info("Update check completed.")
+        client.logger.info(result.message)
         return result if return_result else None
 
     except Exception as exc:
@@ -417,9 +418,13 @@ def update(client, *, return_result: bool = False):
         info_after = get_info(client)
         final_version = info_after["units"][0]["opnsense_version"]
         result.metadata["final_version"] = final_version
+        result.metadata["version_changed"] = is_newer_version(current_version, final_version)
 
-        result.message = f"Update completed: {current_version} -> {final_version}"
-        client.logger.info("Update completed successfully.")
+        if result.metadata["version_changed"]:
+            result.message = f"Update completed: {current_version} -> {final_version}"
+        else:
+            result.message = f"Already up to date: {final_version}. No update was needed."
+        client.logger.info(result.message)
         return result if return_result else None
 
     except Exception as exc:
@@ -464,11 +469,17 @@ def upgrade(client, *, return_result: bool = False):
         result.metadata["final_branch"] = "%d.%d" % normalize_branch(final_version)
         result.metadata["branch_changed"] = is_newer_branch(current_version, final_version)
 
-        result.message = (
-            f"Upgrade completed: {result.metadata['current_branch']} -> "
-            f"{result.metadata['final_branch']}"
-        )
-        client.logger.info("Upgrade completed successfully.")
+        if result.metadata["branch_changed"]:
+            result.message = (
+                f"Upgrade completed: {result.metadata['current_branch']} -> "
+                f"{result.metadata['final_branch']}"
+            )
+        else:
+            result.message = (
+                f"Already on branch {result.metadata['final_branch']}. "
+                "No upgrade was needed."
+            )
+        client.logger.info(result.message)
         return result if return_result else None
 
     except Exception as exc:

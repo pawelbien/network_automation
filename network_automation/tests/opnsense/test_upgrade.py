@@ -590,11 +590,41 @@ def test_update_logs_verifying_installation_and_completion_bookends(
 
     info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
     assert "Verifying installation..." in info_messages
-    assert "Update completed successfully." in info_messages
+    assert "Update completed: 26.1 -> 26.1.11_10" in info_messages
     assert (
         info_messages.index("Verifying installation...")
-        < info_messages.index("Update completed successfully.")
+        < info_messages.index("Update completed: 26.1 -> 26.1.11_10")
     )
+
+
+def test_update_reports_no_update_needed_when_version_unchanged(
+    monkeypatch, mocker, firmware_client
+):
+    _stub_lifecycle(monkeypatch, firmware_client)
+    _stub_get_info(monkeypatch, ["26.1.11_10", "26.1.11_10"])
+
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.running",
+        side_effect=["ready", "ready"],
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.update",
+        return_value="OK",
+    )
+    mocker.patch(
+        "network_automation.platforms.opnsense.upgrade.firmware.status",
+        return_value="***GOT REQUEST***\n...\n***DONE***",
+    )
+    firmware_client.logger = MagicMock()
+
+    result = update(firmware_client, return_result=True)
+
+    assert result.metadata["version_changed"] is False
+    assert result.message == "Already up to date: 26.1.11_10. No update was needed."
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert "Already up to date: 26.1.11_10. No update was needed." in info_messages
+    assert not any("Update completed:" in m for m in info_messages)
 
 
 def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrites(
@@ -699,12 +729,17 @@ def test_upgrade_no_branch_change_reported(monkeypatch, mocker, firmware_client)
         return_value="...\n***DONE***",
     )
     wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
+    firmware_client.logger = MagicMock()
 
     result = upgrade(firmware_client, return_result=True)
 
     assert result.metadata["branch_changed"] is False
     assert result.metadata["rebooted"] is False
     wait_mock.assert_not_called()
+    assert result.message == "Already on branch 26.1. No upgrade was needed."
+
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    assert "Already on branch 26.1. No upgrade was needed." in info_messages
 
 
 # -------------------------------------------------------
