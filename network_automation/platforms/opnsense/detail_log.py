@@ -22,7 +22,7 @@ import os
 import re
 import traceback
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -50,7 +50,13 @@ class DetailLog:
         if self._fh is None:
             return
         try:
-            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+            # Local time, matching the millisecond-precision "YYYY-MM-DD
+            # HH:MM:SS,mmm" format logging.Formatter's default asctime
+            # produces (see the INFO logger's own timestamps) - not UTC,
+            # so entries here line up directly with the INFO log when
+            # cross-referencing the two during troubleshooting.
+            now = datetime.now()
+            timestamp = now.strftime("%Y-%m-%d %H:%M:%S,") + f"{now.microsecond // 1000:03d}"
             self._fh.write(f"{timestamp} {text}\n")
             self._fh.flush()
         except Exception:
