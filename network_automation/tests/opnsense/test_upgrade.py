@@ -516,16 +516,23 @@ def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
 
 
 def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
-    monkeypatch, mocker, firmware_client
+    monkeypatch, mocker, firmware_client, tmp_path
 ):
     """
     When reconnected_during_poll recovers real content from last_log()
-    that just lacks a ***DONE***/***REBOOT*** marker, the message must
-    render it with real newlines (%s), not an escaped single-line repr
-    (%r) - a large recovered log shouldn't turn into one unreadable line.
+    that just lacks a ***DONE***/***REBOOT*** marker, the user-facing INFO
+    logger gets only a short milestone note - the recovered log itself can
+    be the device's entire transcript for everything that ran while
+    disconnected, far too large for the "only milestones" INFO logger.
+    The full recovered text goes to the detail log file instead, rendered
+    with real newlines (%s), not an escaped single-line repr (%r) - a
+    large recovered log shouldn't turn into one unreadable line there
+    either.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+    firmware_client.debug_log_dir = str(tmp_path)
+    firmware_client.host = "10.0.0.1"
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.update",
@@ -551,15 +558,14 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
     assert result.metadata["rebooted"] is True
     assert result.metadata["log"] == "line one\nline two\n"
 
-    matching = [
-        c for c in firmware_client.logger.info.call_args_list
-        if "connection was lost" in c.args[0]
-    ]
+    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
+    matching = [m for m in info_messages if "connection was lost" in m]
     assert len(matching) == 1
-    msg, *args = matching[0].args
-    rendered = msg % tuple(args)
-    assert "line one\nline two" in rendered
-    assert "\\n" not in rendered
+    assert "line one" not in matching[0]
+
+    detail_log = (tmp_path / "10.0.0.1_update.log").read_text()
+    assert "line one\nline two" in detail_log
+    assert "\\n" not in detail_log
 
 
 def test_update_failure_marks_result_and_reraises(monkeypatch, firmware_client):
