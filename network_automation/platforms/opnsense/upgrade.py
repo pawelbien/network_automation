@@ -36,12 +36,14 @@ import time
 from network_automation.results import OperationResult
 from network_automation.platforms.opnsense import firmware
 from network_automation.platforms.opnsense.debug_log import debug_log, debug_timed_step
+from network_automation.platforms.opnsense.detail_log import open_detail_log
 from network_automation.platforms.opnsense.exceptions import OPNsenseFirmwareError
 from network_automation.platforms.opnsense.info import (
     get_info,
     normalize_branch,
     is_newer_branch,
 )
+from network_automation.platforms.opnsense.progress import ProgressParser
 
 
 def _has_reboot_marker(text: str) -> bool:
@@ -64,7 +66,7 @@ def _looks_like_shell_error(text: str) -> bool:
     return "not found" in text or "No such file or directory" in text
 
 
-def _poll_call(client, fn, action_name: str, result: OperationResult):
+def _poll_call(client, fn, action_name: str, result: OperationResult, dlog):
     """
     Call a firmware.py primitive (running()/status()/last_log()) while
     polling, reconnecting once if the SSH session was lost.
@@ -78,12 +80,17 @@ def _poll_call(client, fn, action_name: str, result: OperationResult):
     Records result.metadata["reconnected_during_poll"] = True on
     reconnect - used by _run_and_wait() to tell a genuinely ambiguous
     final log apart from one that's ambiguous because a reboot happened
-    while we were disconnected (see the "no marker" branch there).
+    while we were disconnected (see the "no marker" branch there), and to
+    decide whether "Reboot detected." has already been reported.
     """
     try:
         return fn(client)
     except Exception as exc:
         client.logger.warning(
+            "Lost connection while polling %s (%s) - reconnecting...",
+            action_name, exc,
+        )
+        dlog.event(
             "Lost connection while polling %s (%s) - reconnecting...",
             action_name, exc,
         )
@@ -93,7 +100,7 @@ def _poll_call(client, fn, action_name: str, result: OperationResult):
         return fn(client)
 
 
-_HEARTBEAT_INTERVAL = 60
+_KEEPALIVE_INTERVAL = 60
 
 
 def _new_status_suffix(current_text: str, last_len: int) -> tuple[str, int]:
@@ -121,8 +128,33 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     directly - never client.reboot(), since the reboot here is a side effect
     of the already-running backend job, not something this call initiates.
 
+    User-facing logging (client.logger, e.g. the Nautobot Job log) only
+    ever sees stage transitions from a ProgressParser plus an occasional
+    "Still working..." keepalive - never raw CLI output. Every raw line,
+    reconnect attempt, and exception is additionally written to a detail
+    log file (see detail_log.py), gated by client.debug_log_dir.
+
+    Reboot detection/reporting ("Reboot detected.") is NOT handled by the
+    parser: the only observed real-world signal is a dropped connection
+    mid-poll with no textual marker at all (see _poll_call()), which isn't
+    something a line-in/message-out parser can represent. It's reported
+    here instead, exactly once per call (reboot_notice_emitted), whichever
+    of the two possible triggers fires first - a reconnect during the poll
+    loop, or a ***REBOOT*** marker discovered only after the loop exits.
+    "Waiting for device..."/"Device is back online." remain owned by
+    reboot.py's wait_for_reconnect(), reused unchanged.
+
     Sets result.metadata["log"] and result.metadata["rebooted"].
     """
+    with open_detail_log(client, action_name) as dlog:
+        try:
+            _run_and_wait_inner(client, action_fn, action_name, result, dlog)
+        except Exception as exc:
+            dlog.exception(exc)
+            raise
+
+
+def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
     if firmware.running(client) == "busy":
         raise OPNsenseFirmwareError(
             f"Cannot start {action_name}: firmware backend is already busy"
@@ -130,21 +162,47 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
     ack = action_fn(client)
     client.logger.info("%s started: %s", action_name, ack)
+    dlog.event("%s started: %s", action_name, ack)
+
+    parser = ProgressParser()
+    reboot_notice_emitted = False
+
+    def _report_reboot_detected():
+        nonlocal reboot_notice_emitted
+        if reboot_notice_emitted:
+            return
+        client._safe_log_info("Reboot detected.")
+        dlog.event("STAGE: Reboot detected.")
+        parser.reset()
+        reboot_notice_emitted = True
+
+    def _emit(line):
+        dlog.raw(line)
+        message = parser.feed_line(line)
+        if message:
+            client._safe_log_info(message)
+            dlog.event("STAGE: %s", message)
+        return message is not None
 
     start = time.monotonic()
     last_status_len = 0
-    last_output_at = start
+    last_progress_at = start
     pending = ""  # trailing line not yet terminated by "\n" - held back until it is
     shell_error_active = False
 
     while True:
-        running_state = _poll_call(client, firmware.running, action_name, result)
+        running_state = _poll_call(client, firmware.running, action_name, result, dlog)
+
+        if result.metadata.get("reconnected_during_poll") and not reboot_notice_emitted:
+            _report_reboot_detected()
+            last_progress_at = time.monotonic()
 
         if running_state == "ready":
             if shell_error_active:
                 client._safe_log_info("%s: configctl available again", action_name)
+                dlog.event("%s: configctl available again", action_name)
             if pending.strip():
-                client._safe_log_info("%s", pending)
+                _emit(pending)
             break
 
         now = time.monotonic()
@@ -161,37 +219,41 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
                     "while replacing the opnsense package)",
                     action_name,
                 )
+                dlog.event(
+                    "%s: configctl temporarily unavailable (expected "
+                    "while replacing the opnsense package)",
+                    action_name,
+                )
                 shell_error_active = True
         else:
             if shell_error_active:
                 client._safe_log_info("%s: configctl available again", action_name)
+                dlog.event("%s: configctl available again", action_name)
                 shell_error_active = False
 
-            status_text = _poll_call(client, firmware.status, action_name, result)
+            status_text = _poll_call(client, firmware.status, action_name, result, dlog)
             new_text, last_status_len = _new_status_suffix(status_text, last_status_len)
             pending += new_text
 
             if "\n" in pending:
                 *complete_lines, pending = pending.split("\n")
-                to_log = "\n".join(complete_lines)
-                if to_log.strip():
-                    client._safe_log_info("%s", to_log)
-                last_output_at = now
-            elif pending.strip():
-                if now - last_output_at > _HEARTBEAT_INTERVAL:
-                    client._safe_log_info("%s", pending)
-                    pending = ""
-                    last_output_at = now
-            elif now - last_output_at > _HEARTBEAT_INTERVAL:
-                client._safe_log_info(
-                    "%s: still running (%ds without new output)...",
-                    action_name, int(now - last_output_at),
-                )
-                last_output_at = now
+                progressed = False
+                for line in complete_lines:
+                    if not line.strip():
+                        continue
+                    if _emit(line):
+                        progressed = True
+                if progressed:
+                    last_progress_at = now
+
+        if now - last_progress_at > _KEEPALIVE_INTERVAL:
+            client._safe_log_info("Still working...")
+            dlog.event("KEEPALIVE")
+            last_progress_at = now
 
         time.sleep(client.firmware_poll_interval)
 
-    log_text = _poll_call(client, firmware.status, action_name, result)
+    log_text = _poll_call(client, firmware.status, action_name, result, dlog)
 
     if not log_text.strip() or (
         not _has_reboot_marker(log_text) and not _has_done_marker(log_text)
@@ -202,7 +264,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         # time we're back. The persisted log at LOGFILE (under
         # /var/cache) survives a reboot, so fall back to it before
         # giving up.
-        fallback_log = _poll_call(client, firmware.last_log, action_name, result)
+        fallback_log = _poll_call(client, firmware.last_log, action_name, result, dlog)
         if fallback_log.strip():
             log_text = fallback_log
 
@@ -210,6 +272,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
 
     if _has_reboot_marker(log_text):
         result.metadata["rebooted"] = True
+        _report_reboot_detected()
 
         # output_reboot() writes the marker, then `sleep 5`, then
         # rc.reboot - the device is still up for a few seconds after the
@@ -217,6 +280,11 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
         # can reconnect to that still-alive, about-to-die session and
         # declare success right before the real reboot severs it.
         client.logger.info(
+            "Reboot required; waiting %ds for the backend's internal "
+            "delay before rc.reboot actually runs...",
+            client.reboot_grace_period,
+        )
+        dlog.event(
             "Reboot required; waiting %ds for the backend's internal "
             "delay before rc.reboot actually runs...",
             client.reboot_grace_period,
@@ -278,6 +346,7 @@ def check_updates(client, *, return_result: bool = False):
             _run_and_wait(client, firmware.check, "check", result)
 
         result.message = "Update check completed"
+        client.logger.info("Update check completed.")
         return result if return_result else None
 
     except Exception as exc:
@@ -311,11 +380,13 @@ def update(client, *, return_result: bool = False):
         with debug_timed_step(client, "update"):
             _run_and_wait(client, firmware.update, "update", result)
 
+        client.logger.info("Verifying installation...")
         info_after = get_info(client)
         final_version = info_after["units"][0]["opnsense_version"]
         result.metadata["final_version"] = final_version
 
         result.message = f"Update completed: {current_version} -> {final_version}"
+        client.logger.info("Update completed successfully.")
         return result if return_result else None
 
     except Exception as exc:
@@ -354,6 +425,7 @@ def upgrade(client, *, return_result: bool = False):
         with debug_timed_step(client, "upgrade"):
             _run_and_wait(client, firmware.upgrade, "upgrade", result)
 
+        client.logger.info("Verifying installation...")
         info_after = get_info(client)
         final_version = info_after["units"][0]["opnsense_version"]
         result.metadata["final_branch"] = "%d.%d" % normalize_branch(final_version)
@@ -363,6 +435,7 @@ def upgrade(client, *, return_result: bool = False):
             f"Upgrade completed: {result.metadata['current_branch']} -> "
             f"{result.metadata['final_branch']}"
         )
+        client.logger.info("Upgrade completed successfully.")
         return result if return_result else None
 
     except Exception as exc:
