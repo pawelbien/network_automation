@@ -229,7 +229,6 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
 
         if running_state == "ready":
             if shell_error_active:
-                client._safe_log_info("%s: configctl available again", action_name)
                 dlog.event("%s: configctl available again", action_name)
             if pending.strip():
                 _emit(pending)
@@ -244,11 +243,11 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
 
         if _looks_like_shell_error(running_state):
             if not shell_error_active:
-                client._safe_log_info(
-                    "%s: configctl temporarily unavailable (expected "
-                    "while replacing the opnsense package)",
-                    action_name,
-                )
+                # configctl (a symlink into the opnsense package) briefly
+                # reporting "not found" while that same package is
+                # mid-replacing its own files is expected, not noteworthy
+                # - recorded in the detail log only, never the user-facing
+                # logger (see _looks_like_shell_error()'s docstring).
                 dlog.event(
                     "%s: configctl temporarily unavailable (expected "
                     "while replacing the opnsense package)",
@@ -257,7 +256,6 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
                 shell_error_active = True
         else:
             if shell_error_active:
-                client._safe_log_info("%s: configctl available again", action_name)
                 dlog.event("%s: configctl available again", action_name)
                 shell_error_active = False
 

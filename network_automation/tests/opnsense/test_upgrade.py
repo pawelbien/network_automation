@@ -372,7 +372,7 @@ def test_update_falls_back_to_last_log_when_lockfile_empty(monkeypatch, mocker, 
     wait_mock.assert_not_called()
 
 
-def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, firmware_client):
+def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, firmware_client, tmp_path):
     """
     configctl (a symlink to configd_ctl.py) can transiently report "not
     found" for a poll or two while the opnsense package itself - what the
@@ -381,13 +381,16 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     firmware.status() during that iteration (skipped in favor of a
     friendlier log message) - it should just keep polling.
 
-    The unavailable/available-again messages are logged once per state
-    transition, not once per poll: two consecutive "not found" polls
-    must log "temporarily unavailable" only once, and "available again"
-    only once when the state clears.
+    This is expected, not noteworthy, so the unavailable/available-again
+    transitions must never reach the user-facing INFO logger - only the
+    detail log file, once per state transition (not once per poll): two
+    consecutive "not found" polls must record "temporarily unavailable"
+    only once, and "available again" only once when the state clears.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
+    firmware_client.debug_log_dir = str(tmp_path)
+    firmware_client.host = "10.0.0.1"
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.update",
@@ -417,8 +420,12 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     wait_mock.assert_not_called()
 
     info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
-    assert sum("temporarily unavailable" in m for m in info_messages) == 1
-    assert sum("available again" in m for m in info_messages) == 1
+    assert not any("temporarily unavailable" in m for m in info_messages)
+    assert not any("available again" in m for m in info_messages)
+
+    detail_log = (tmp_path / "10.0.0.1_update.log").read_text()
+    assert detail_log.count("temporarily unavailable") == 1
+    assert detail_log.count("available again") == 1
 
 
 def test_update_reconnects_when_connection_lost_mid_poll(monkeypatch, mocker, firmware_client):
