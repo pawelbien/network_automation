@@ -93,8 +93,8 @@ def _poll_call(client, fn, action_name: str, result: OperationResult, dlog):
         # actual reboot) is an expected part of update()/upgrade(), not an
         # anomaly worth flagging above normal progress output.
         client.logger.info(
-            "Lost connection while polling %s (%s) - reconnecting...",
-            action_name, exc,
+            "Lost connection while polling %s - reconnecting...",
+            action_name,
         )
         dlog.event(
             "Lost connection while polling %s (%s) - reconnecting...",
