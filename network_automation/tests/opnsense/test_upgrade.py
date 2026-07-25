@@ -513,7 +513,7 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
 ):
     """
     When reconnected_during_poll recovers real content from last_log()
-    that just lacks a ***DONE***/***REBOOT*** marker, the warning must
+    that just lacks a ***DONE***/***REBOOT*** marker, the message must
     render it with real newlines (%s), not an escaped single-line repr
     (%r) - a large recovered log shouldn't turn into one unreadable line.
     """
@@ -544,7 +544,12 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
     assert result.metadata["rebooted"] is True
     assert result.metadata["log"] == "line one\nline two\n"
 
-    msg, *args = firmware_client.logger.warning.call_args_list[-1].args
+    matching = [
+        c for c in firmware_client.logger.info.call_args_list
+        if "connection was lost" in c.args[0]
+    ]
+    assert len(matching) == 1
+    msg, *args = matching[0].args
     rendered = msg % tuple(args)
     assert "line one\nline two" in rendered
     assert "\\n" not in rendered

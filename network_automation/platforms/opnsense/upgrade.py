@@ -86,7 +86,12 @@ def _poll_call(client, fn, action_name: str, result: OperationResult, dlog):
     try:
         return fn(client)
     except Exception as exc:
-        client.logger.warning(
+        # INFO, not WARNING: the configctl firmware backend runs detached
+        # from this SSH session (see module docstring) - losing it mid-poll
+        # (e.g. sshd restarting while its own package is replaced, or an
+        # actual reboot) is an expected part of update()/upgrade(), not an
+        # anomaly worth flagging above normal progress output.
+        client.logger.info(
             "Lost connection while polling %s (%s) - reconnecting...",
             action_name, exc,
         )
@@ -333,15 +338,18 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
         # Treating this as a hard failure would be wrong when the update
         # most likely succeeded; the caller's own post-call get_info()
         # is the real verification of the outcome.
+        # INFO, not WARNING: reconnecting mid-poll and inferring a reboot
+        # from that (rather than a marker) is an expected outcome here,
+        # not an anomaly - see _poll_call()'s matching comment.
         if log_text.strip():
-            client.logger.warning(
+            client.logger.info(
                 "%s: connection was lost and reconnected while polling; "
                 "assuming a reboot occurred (recovered log has no "
                 "***DONE***/***REBOOT*** marker):\n%s",
                 action_name, log_text,
             )
         else:
-            client.logger.warning(
+            client.logger.info(
                 "%s: connection was lost and reconnected while polling; "
                 "assuming a reboot occurred (no log recovered)",
                 action_name,
