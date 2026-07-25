@@ -88,7 +88,7 @@ def _stub_get_info(monkeypatch, versions):
     it = iter(versions)
     monkeypatch.setattr(
         "network_automation.platforms.opnsense.upgrade.get_info",
-        lambda client: {"units": [{"opnsense_version": next(it)}]},
+        lambda client: {"units": [{"opnsense_version": next(it), "hostname": "fw-test"}]},
     )
 
 
@@ -602,6 +602,11 @@ def test_update_logs_verifying_installation_and_completion_bookends(
         info_messages.index("Verifying installation...")
         < info_messages.index("Update completed: 26.1 -> 26.1.11_10")
     )
+    # get_info() is called twice (before and after) but hostname must only
+    # be announced once, at the very start - not duplicated on the
+    # post-operation verification read.
+    assert info_messages.count("Hostname: fw-test") == 1
+    assert info_messages[0] == "Hostname: fw-test"
 
 
 def test_update_reports_no_update_needed_when_version_unchanged(

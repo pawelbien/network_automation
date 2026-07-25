@@ -424,6 +424,7 @@ def update(client, *, return_result: bool = False):
         client._ensure_shell()
 
         info = get_info(client)
+        client.logger.info("Hostname: %s", info["units"][0]["hostname"])
         current_version = info["units"][0]["opnsense_version"]
         result.metadata["current_version"] = current_version
 
@@ -473,6 +474,7 @@ def upgrade(client, *, return_result: bool = False):
         client._ensure_shell()
 
         info = get_info(client)
+        client.logger.info("Hostname: %s", info["units"][0]["hostname"])
         current_version = info["units"][0]["opnsense_version"]
         current_branch = normalize_branch(current_version)
         result.metadata["current_branch"] = "%d.%d" % current_branch
