@@ -111,7 +111,7 @@ _KEEPALIVE_INTERVAL = 60
 
 def _log_detail_log_path(client, result: OperationResult) -> None:
     """Log where the detail log file was saved, as the final line of the
-    operation - a no-op when none was written (debug_log_dir unset)."""
+    operation - a no-op when none was written (debug_log_file unset)."""
     detail_log_path = result.metadata.get("detail_log_path")
     if detail_log_path:
         client.logger.info("Detail log saved to: %s", detail_log_path)
@@ -146,7 +146,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     ever sees stage transitions from a ProgressParser plus an occasional
     "Still working..." keepalive - never raw CLI output. Every raw line,
     reconnect attempt, and exception is additionally written to a detail
-    log file (see detail_log.py), gated by client.debug_log_dir.
+    log file (see detail_log.py), gated by client.debug_log_file.
 
     Reboot detection/reporting ("Reboot detected.") is NOT handled by the
     parser: the only observed real-world signal is a dropped connection
@@ -171,7 +171,7 @@ def _run_and_wait(client, action_fn, action_name: str, result: OperationResult) 
     the final line of the operation instead of appearing mid-sequence,
     before the post-operation verification/completion messages.
     """
-    with open_detail_log(client, action_name) as dlog:
+    with open_detail_log(client) as dlog:
         try:
             _run_and_wait_inner(client, action_fn, action_name, result, dlog)
         except Exception as exc:

@@ -1,7 +1,7 @@
 # network_automation/platforms/opnsense/detail_log.py
 
 """
-Per-device detailed diagnostic log file for OPNsense firmware operations.
+Detailed diagnostic log file for OPNsense firmware operations.
 
 Separate concern from progress.py's stage messages (user-facing, sent to
 the INFO logger / Nautobot Job log) and from debug_log.py's DEBUG-level
@@ -11,30 +11,19 @@ from the device, every reconnect attempt, and every exception (with full
 traceback) to a local file - for troubleshooting only, never forwarded to
 the Job log.
 
-Gated by client.debug_log_dir (an OPNsense.__init__ parameter, None by
-default - opt-in, matching context.debug_log's default). DetailLog never
-raises: a failure to create the directory or open the file degrades to a
-silent no-op object rather than aborting an operation that is otherwise
-succeeding - same philosophy as BaseClient._safe_log_info().
+Gated by client.debug_log_file (an OPNsense.__init__ parameter, None by
+default - opt-in, matching context.debug_log's default): the exact path,
+including filename, is the caller's choice - this module doesn't derive
+one from the device/action. DetailLog never raises: a failure to create
+the parent directory or open the file degrades to a silent no-op object
+rather than aborting an operation that is otherwise succeeding - same
+philosophy as BaseClient._safe_log_info().
 """
 
 import os
-import re
 import traceback
 from contextlib import contextmanager
 from datetime import datetime
-
-_SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
-
-
-def _slug(value: str) -> str:
-    return _SLUG_RE.sub("_", value).strip("_") or "device"
-
-
-def _device_label(client) -> str:
-    context = getattr(client, "context", None)
-    device_name = getattr(context, "device_name", None)
-    return device_name or client.host
 
 
 class DetailLog:
@@ -93,38 +82,40 @@ class DetailLog:
 
 
 class _NullDetailLog(DetailLog):
-    """No-op stand-in used when debug_log_dir is unset or unusable."""
+    """No-op stand-in used when debug_log_file is unset or unusable."""
 
     def __init__(self) -> None:
         super().__init__(None, None)
 
 
 @contextmanager
-def open_detail_log(client, action_name: str):
+def open_detail_log(client):
     """
-    Open (overwrite-mode) the detail log file for this device+action and
-    yield a DetailLog writing to it. Falls back to a no-op DetailLog if
-    client.debug_log_dir is None/empty or the file can't be opened.
+    Open (overwrite-mode) client.debug_log_file and yield a DetailLog
+    writing to it. Falls back to a no-op DetailLog if client.debug_log_file
+    is None/empty or the file can't be opened.
 
-    The file path is deterministic per device+action (no timestamp
-    component), so each new operation for the same device overwrites the
-    previous run's file rather than appending to or accumulating them.
+    Opened in "w" mode, so each new operation overwrites whatever the
+    previous run wrote to the same path - the caller decides whether that
+    path should vary (e.g. per device) or not.
     """
-    debug_log_dir = getattr(client, "debug_log_dir", None)
+    debug_log_file = getattr(client, "debug_log_file", None)
     file_handle = None
-    path = None
 
-    if debug_log_dir:
+    if debug_log_file:
         try:
-            os.makedirs(debug_log_dir, exist_ok=True)
-            filename = f"{_slug(_device_label(client))}_{_slug(action_name)}.log"
-            path = os.path.join(debug_log_dir, filename)
-            file_handle = open(path, "w", encoding="utf-8")
+            parent_dir = os.path.dirname(debug_log_file)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            file_handle = open(debug_log_file, "w", encoding="utf-8")
         except Exception:
             file_handle = None
-            path = None
 
-    dlog = DetailLog(file_handle, path) if file_handle is not None else _NullDetailLog()
+    dlog = (
+        DetailLog(file_handle, debug_log_file)
+        if file_handle is not None
+        else _NullDetailLog()
+    )
     try:
         yield dlog
     finally:

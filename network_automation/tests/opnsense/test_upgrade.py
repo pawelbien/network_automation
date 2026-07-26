@@ -389,8 +389,8 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
-    firmware_client.debug_log_dir = str(tmp_path)
-    firmware_client.host = "10.0.0.1"
+    log_file = tmp_path / "detail.log"
+    firmware_client.debug_log_file = str(log_file)
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.update",
@@ -423,7 +423,7 @@ def test_update_tolerates_transient_configctl_not_found(monkeypatch, mocker, fir
     assert not any("temporarily unavailable" in m for m in info_messages)
     assert not any("available again" in m for m in info_messages)
 
-    detail_log = (tmp_path / "10.0.0.1_update.log").read_text()
+    detail_log = log_file.read_text()
     assert detail_log.count("temporarily unavailable") == 1
     assert detail_log.count("available again") == 1
 
@@ -531,8 +531,8 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
-    firmware_client.debug_log_dir = str(tmp_path)
-    firmware_client.host = "10.0.0.1"
+    log_file = tmp_path / "detail.log"
+    firmware_client.debug_log_file = str(log_file)
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.update",
@@ -563,7 +563,7 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
     assert len(matching) == 1
     assert "line one" not in matching[0]
 
-    detail_log = (tmp_path / "10.0.0.1_update.log").read_text()
+    detail_log = log_file.read_text()
     assert "line one\nline two" in detail_log
     assert "\\n" not in detail_log
 
@@ -650,8 +650,8 @@ def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrite
 ):
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10", "26.1", "26.1.11_10"])
-    firmware_client.debug_log_dir = str(tmp_path)
-    firmware_client.host = "10.0.0.1"
+    log_path = tmp_path / "detail.log"
+    firmware_client.debug_log_file = str(log_path)
 
     mocker.patch(
         "network_automation.platforms.opnsense.upgrade.firmware.running",
@@ -676,7 +676,6 @@ def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrite
     firmware_client.logger = MagicMock()
 
     update(firmware_client, return_result=True)
-    log_path = tmp_path / "10.0.0.1_update.log"
     first_content = log_path.read_text()
     assert "[1/1] Fetching foo.pkg: .... done" in first_content
     assert "STAGE: Downloading packages..." in first_content
@@ -690,10 +689,10 @@ def test_update_writes_detail_log_with_raw_lines_and_stage_markers_and_overwrite
     assert "second run content" in second_content
 
 
-def test_update_does_not_log_detail_log_path_when_debug_log_dir_is_none(
+def test_update_does_not_log_detail_log_path_when_debug_log_file_is_none(
     monkeypatch, mocker, firmware_client
 ):
-    firmware_client.debug_log_dir = None
+    firmware_client.debug_log_file = None
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
 
