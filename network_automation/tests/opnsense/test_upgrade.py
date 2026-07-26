@@ -520,14 +520,15 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
 ):
     """
     When reconnected_during_poll recovers real content from last_log()
-    that just lacks a ***DONE***/***REBOOT*** marker, the user-facing INFO
-    logger gets only a short milestone note - the recovered log itself can
-    be the device's entire transcript for everything that ran while
-    disconnected, far too large for the "only milestones" INFO logger.
-    The full recovered text goes to the detail log file instead, rendered
-    with real newlines (%s), not an escaped single-line repr (%r) - a
-    large recovered log shouldn't turn into one unreadable line there
-    either.
+    that just lacks a ***DONE***/***REBOOT*** marker, none of that reasoning
+    reaches the user-facing INFO logger - "Reboot detected." (logged
+    separately) is the only milestone that matters here, and the recovered
+    log itself can be the device's entire transcript for everything that
+    ran while disconnected, far too large for the "only milestones" INFO
+    logger regardless. The full recovered text goes to the detail log file
+    instead, rendered with real newlines (%s), not an escaped single-line
+    repr (%r) - a large recovered log shouldn't turn into one unreadable
+    line there either.
     """
     _stub_lifecycle(monkeypatch, firmware_client)
     _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
@@ -559,9 +560,8 @@ def test_update_logs_recovered_log_readably_when_reconnected_during_poll(
     assert result.metadata["log"] == "line one\nline two\n"
 
     info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
-    matching = [m for m in info_messages if "connection was lost" in m]
-    assert len(matching) == 1
-    assert "line one" not in matching[0]
+    assert not any("connection was lost" in m for m in info_messages)
+    assert "Reboot detected." in info_messages
 
     detail_log = log_file.read_text()
     assert "line one\nline two" in detail_log

@@ -354,21 +354,16 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
         # Treating this as a hard failure would be wrong when the update
         # most likely succeeded; the caller's own post-call get_info()
         # is the real verification of the outcome.
-        # INFO, not WARNING: reconnecting mid-poll and inferring a reboot
-        # from that (rather than a marker) is an expected outcome here,
-        # not an anomaly - see _poll_call()'s matching comment. The
-        # recovered log itself can be the device's *entire* transcript
-        # (e.g. everything that ran while we were disconnected/
-        # reconnecting) - too large for the milestone-only INFO logger,
-        # so only a short note goes there; the full recovered text goes
-        # to the detail log file instead.
+        # Not logged to the user-facing INFO logger: this is the reasoning
+        # behind concluding a reboot happened (marker analysis), not a
+        # milestone itself - "Reboot detected." (right below) already says
+        # the one thing that matters, and "Lost connection while polling
+        # ... - reconnecting..." already told the reader a disconnect
+        # happened. The full reasoning/recovered text goes to the detail
+        # log file instead (which can be the device's *entire* transcript
+        # of everything that ran while disconnected - too large for the
+        # milestone-only INFO logger regardless).
         if log_text.strip():
-            client.logger.info(
-                "%s: connection was lost and reconnected while polling; "
-                "assuming a reboot occurred (recovered log has no "
-                "***DONE***/***REBOOT*** marker).",
-                action_name,
-            )
             dlog.event(
                 "%s: connection was lost and reconnected while polling; "
                 "assuming a reboot occurred - recovered log (no "
@@ -376,7 +371,7 @@ def _run_and_wait_inner(client, action_fn, action_name, result, dlog) -> None:
                 action_name, log_text,
             )
         else:
-            client.logger.info(
+            dlog.event(
                 "%s: connection was lost and reconnected while polling; "
                 "assuming a reboot occurred (no log recovered)",
                 action_name,
