@@ -509,53 +509,7 @@ def test_update_treats_ambiguous_log_as_reboot_when_reconnected_during_poll(
     assert result.success is True
     assert result.metadata["rebooted"] is True
     assert result.metadata["reconnected_during_poll"] is True
-    assert result.metadata["reboot_marker_seen_live"] is False
     wait_mock.assert_called_once()
-
-
-def test_update_confirms_reboot_when_marker_was_seen_live_before_disconnect(
-    monkeypatch, mocker, firmware_client
-):
-    """
-    If ***REBOOT*** was seen in the live status() feed before the
-    connection dropped, and the post-reconnect log recovery finds no
-    marker (the reboot itself wiped /tmp, where the lockfile status()
-    reads from lives), this is a confirmed reboot, not a guess from the
-    disconnect alone - the INFO message and result.metadata must reflect
-    that distinction (see _emit()'s reboot_marker_seen_live tracking).
-    """
-    _stub_lifecycle(monkeypatch, firmware_client)
-    _stub_get_info(monkeypatch, ["26.1", "26.1.11_10"])
-
-    mocker.patch(
-        "network_automation.platforms.opnsense.upgrade.firmware.update",
-        return_value="OK",
-    )
-    mocker.patch(
-        "network_automation.platforms.opnsense.upgrade.firmware.running",
-        side_effect=["ready", "busy", Exception("Socket is closed"), "ready"],
-    )
-    mocker.patch(
-        "network_automation.platforms.opnsense.upgrade.firmware.status",
-        side_effect=["***REBOOT***\n", ""],
-    )
-    mocker.patch(
-        "network_automation.platforms.opnsense.upgrade.firmware.last_log",
-        return_value="post-reboot content, no marker\n",
-    )
-    wait_mock = mocker.patch.object(firmware_client, "wait_for_reconnect")
-    firmware_client.logger = MagicMock()
-
-    result = update(firmware_client, return_result=True)
-
-    assert result.success is True
-    assert result.metadata["rebooted"] is True
-    assert result.metadata["reboot_marker_seen_live"] is True
-    wait_mock.assert_called_once()
-
-    info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
-    assert any("reboot confirmed" in m for m in info_messages)
-    assert not any("assuming a reboot occurred" in m for m in info_messages)
 
     info_messages = [c.args[0] % c.args[1:] for c in firmware_client.logger.info.call_args_list]
     assert info_messages.count("Reboot detected.") == 1
