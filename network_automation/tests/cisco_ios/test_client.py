@@ -11,16 +11,6 @@ def test_device_dict(cisco_client):
     assert cisco_client.device["passphrase"] == "pass"
 
 
-def test_reboot_not_implemented(cisco_client):
-    with pytest.raises(NotImplementedError):
-        cisco_client.reboot()
-
-
-def test_wait_for_reconnect_not_implemented(cisco_client):
-    with pytest.raises(NotImplementedError):
-        cisco_client.wait_for_reconnect()
-
-
 def test_upgrade_not_implemented(cisco_client):
     with pytest.raises(NotImplementedError):
         cisco_client.upgrade()

@@ -4,6 +4,8 @@ from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.cisco_ios.backup import run_backup
 from network_automation.platforms.cisco_ios.info import read_info
+from network_automation.platforms.cisco_ios.reboot import reboot as reboot_helper
+from network_automation.platforms.cisco_ios.reboot import wait_for_reconnect as wait_for_reconnect_helper
 
 
 class CiscoIOS(BaseClient):
@@ -22,6 +24,8 @@ class CiscoIOS(BaseClient):
         port=22,
         connect_retries=2,
         connect_delay=2,
+        reconnect_timeout=300,
+        reconnect_delay=10,
         disabled_algorithms: dict | None = None,
         *,
         context: ExecutionContext | None = None,
@@ -48,6 +52,9 @@ class CiscoIOS(BaseClient):
         self.username = username
         self.current_version = None
 
+        self.reconnect_timeout = reconnect_timeout
+        self.reconnect_delay = reconnect_delay
+
     # -------------------------------------------------------
     # System info
     # -------------------------------------------------------
@@ -61,12 +68,12 @@ class CiscoIOS(BaseClient):
     # -------------------------------------------------------
 
     def reboot(self):
-        """Not implemented yet."""
-        raise NotImplementedError("CiscoIOS.reboot() is not implemented yet.")
+        """Reload the device."""
+        return reboot_helper(self)
 
     def wait_for_reconnect(self):
-        """Not implemented yet."""
-        raise NotImplementedError("CiscoIOS.wait_for_reconnect() is not implemented yet.")
+        """Wait until the device is reachable via SSH again."""
+        return wait_for_reconnect_helper(self)
 
     # -------------------------------------------------------
     # Upgrade
