@@ -2,6 +2,7 @@
 
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
+from network_automation.platforms.cisco_ios.backup import run_backup
 from network_automation.platforms.cisco_ios.info import read_info
 
 
@@ -80,5 +81,5 @@ class CiscoIOS(BaseClient):
     # -------------------------------------------------------
 
     def backup(self, name: str, *, return_result: bool = False, download_dir: str = "."):
-        """Not implemented yet."""
-        raise NotImplementedError("CiscoIOS.backup() is not implemented yet.")
+        """Capture running-config and write it to download_dir."""
+        return run_backup(self, name, return_result=return_result, download_dir=download_dir)

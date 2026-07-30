@@ -24,8 +24,3 @@ def test_wait_for_reconnect_not_implemented(cisco_client):
 def test_upgrade_not_implemented(cisco_client):
     with pytest.raises(NotImplementedError):
         cisco_client.upgrade()
-
-
-def test_backup_not_implemented(cisco_client):
-    with pytest.raises(NotImplementedError):
-        cisco_client.backup("name")
