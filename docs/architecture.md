@@ -208,6 +208,18 @@ info = client.get_info()
 # {"units": [{"id": 1, "role": "master", "model": "...", "esn": "...", ...}]}
 ```
 
+**Cisco IOS/IOS-XE — unified unit model (single command)**
+
+Follows MikroTik's single-unit shape, but simpler: `get_info` runs one
+command (`show version`) instead of split private helpers, since all
+required fields (hostname, version, model, serial) come from the same
+output. No stack support yet.
+
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "version": "...", "name": "...", ...}]}
+```
+
 ---
 
 ### 2. Operation / Workflow
@@ -525,17 +537,23 @@ tests/
 │   ├── test_upload.py           # ← upload.py
 │   ├── test_version.py          # ← version.py
 │   └── test_upgrade.py          # ← upgrade.py
-└── opnsense/
-    ├── conftest.py              # opnsense_client fixture
+├── opnsense/
+│   ├── conftest.py              # opnsense_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_client.py           # ← client.py
+│   ├── test_debug_log.py        # ← debug_log.py
+│   ├── test_detail_log.py       # ← detail_log.py
+│   ├── test_firmware.py         # ← firmware.py
+│   ├── test_info.py             # ← info.py
+│   ├── test_progress.py         # ← progress.py
+│   ├── test_reboot.py           # ← reboot.py
+│   └── test_upgrade.py          # ← upgrade.py
+└── cisco_ios/
+    ├── conftest.py              # cisco_client fixture
     ├── test_backup.py           # ← backup.py
     ├── test_client.py           # ← client.py
-    ├── test_debug_log.py        # ← debug_log.py
-    ├── test_detail_log.py       # ← detail_log.py
-    ├── test_firmware.py         # ← firmware.py
     ├── test_info.py             # ← info.py
-    ├── test_progress.py         # ← progress.py
-    ├── test_reboot.py           # ← reboot.py
-    └── test_upgrade.py          # ← upgrade.py
+    └── test_reboot.py           # ← reboot.py
 ```
 
 When adding a new module `foo.py`, the corresponding test file is `test_foo.py`.

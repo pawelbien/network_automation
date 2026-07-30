@@ -15,6 +15,7 @@ Currently supported platforms:
 - **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
 - **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 - **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
+- **Cisco IOS/IOS-XE** — device information (`get_info`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_ios"` (same string as Netmiko's Cisco IOS driver)
 
 ---
 
@@ -62,6 +63,13 @@ Not every operation is available on every platform.
 - Update within the current release branch (`update`) and migration to a new branch (`upgrade`) — both drive the native `configctl firmware` backend; neither calls the other automatically
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
 - Configuration backup (`backup`) — SFTP GET of the live `/conf/config.xml`; no on-device snapshot step (see below)
+
+### Cisco IOS/IOS-XE
+
+- Device information (`get_info`) — hostname, version, model, serial via `show version`
+- Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
+- Configuration backup (`backup`) — `show running-config` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
+- Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
 
 ---
 
@@ -209,6 +217,32 @@ shell; pass `skip_menu=False` for accounts that still see the console menu
 — the client then selects `shell_menu_option` (default `"8"`) before
 running any command. See `docs/architecture.md` for details.
 
+### Cisco IOS/IOS-XE
+
+`get_info` runs a single `show version` and returns a unified **unit
+structure**. Cisco IOS is always a single-unit device on this platform (no
+stack support yet).
+
+```python
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `version` | IOS/IOS-XE version string |
+| `name` | Hostname |
+| `serial` | Processor board ID |
+| `model` | Device model |
+
+All fields are mandatory — a missing field raises `ValueError`.
+
 ---
 
 ## Basic Usage
@@ -310,6 +344,32 @@ client.backup("daily", download_dir="/tmp/backups")
 `examples/opnsense/read_info.py` shows `get_info`, printed as a formatted
 summary.
 
+### Cisco IOS/IOS-XE
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="cisco_ios",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+info = client.get_info()
+unit = info["units"][0]
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+
+# Configuration backup: captures 'show running-config' over the existing
+# SSH session and writes it to daily.cfg — no SFTP, no on-device snapshot
+client.backup("daily", download_dir="/tmp/backups")
+```
+
+`examples/cisco_ios/read_info.py` shows `get_info`, printed as a formatted
+summary.
+
+`client.upgrade()` is not implemented yet and raises `NotImplementedError`.
+
 ---
 
 ## Firmware Upgrade
@@ -317,7 +377,8 @@ summary.
 Firmware upgrade is implemented for **MikroTik RouterOS**, in a reduced
 form for **Huawei VRP** (firmware and/or patch, single-unit devices — see
 below), and for **OPNsense** via its native `configctl firmware` backend
-(see below).
+(see below). Not yet implemented for **Cisco IOS/IOS-XE** —
+`client.upgrade()` raises `NotImplementedError`.
 
 Firmware upgrade requires **explicit configuration** of the delivery method.
 
@@ -569,6 +630,7 @@ Tests are designed to run without real network devices.
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
 - `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
 - `examples/opnsense/` — OPNsense usage examples (`read_info.py`)
+- `examples/cisco_ios/` — Cisco IOS/IOS-XE usage examples (`read_info.py`)
 
 ---
 
