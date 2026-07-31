@@ -571,7 +571,8 @@ tests/
     ├── conftest.py              # cisco_xr_client fixture
     ├── test_backup.py           # ← backup.py
     ├── test_client.py           # ← client.py
-    └── test_info.py             # ← info.py
+    ├── test_info.py             # ← info.py
+    └── test_reboot.py           # ← reboot.py
 ```
 
 When adding a new module `foo.py`, the corresponding test file is `test_foo.py`.
