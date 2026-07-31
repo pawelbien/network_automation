@@ -171,43 +171,6 @@ Helpers are easy to unit test in isolation.
 The model is platform-specific. Platforms choose the model that fits their
 data structure and correlation requirements.
 
-**MikroTik RouterOS — unified unit model (with split internal helpers)**
-
-The public `read_info` workflow calls `get_info`, which assembles all collected
-data into a unified `{"units": [...]}` structure — the same shape as Huawei.
-MikroTik is always a single-unit device, so `units` always contains exactly one entry.
-
-Hardware fields (`serial`, `model`, `bootloader_current_firmware`,
-`bootloader_upgrade_firmware`) are `None` when RouterBOARD is unavailable (e.g., CHR).
-
-```python
-info = read_info(client)
-# {"units": [{"id": 0, "role": "master", "arch": "...", "version": "...", ...}]}
-```
-
-Internally, `get_info` delegates to three private helpers:
-
-- **`_get_software_info`** — mandatory; architecture and RouterOS version
-- **`_get_system_identity`** — mandatory; system hostname
-- **`_get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
-
-**Huawei VRP — unified member model**
-
-Information is collected via a single `get_info` helper that runs three commands
-(`display version`, `display esn`, `display startup`) and correlates the results
-by slot ID and role. The output is a `units` list — one entry per physical device
-(standalone router or stack slot).
-
-This model is used because:
-- Slot IDs must be correlated across all three commands
-- Stacked devices are a first-class concept (master + standby slots)
-- Splitting into independent helpers would require callers to perform the correlation
-
-```python
-info = client.get_info()
-# {"units": [{"id": 1, "role": "master", "model": "...", "esn": "...", ...}]}
-```
-
 **Cisco IOS/IOS-XE — unified unit model (single command)**
 
 Follows MikroTik's single-unit shape, but simpler: `get_info` runs one
@@ -232,6 +195,43 @@ there is always exactly one unit. No stack support yet.
 info = read_info(client)
 # {"units": [{"id": 0, "role": "master", "version": "...", "name": "...", ...}]}
 ```
+
+**Huawei VRP — unified member model**
+
+Information is collected via a single `get_info` helper that runs three commands
+(`display version`, `display esn`, `display startup`) and correlates the results
+by slot ID and role. The output is a `units` list — one entry per physical device
+(standalone router or stack slot).
+
+This model is used because:
+- Slot IDs must be correlated across all three commands
+- Stacked devices are a first-class concept (master + standby slots)
+- Splitting into independent helpers would require callers to perform the correlation
+
+```python
+info = client.get_info()
+# {"units": [{"id": 1, "role": "master", "model": "...", "esn": "...", ...}]}
+```
+
+**MikroTik RouterOS — unified unit model (with split internal helpers)**
+
+The public `read_info` workflow calls `get_info`, which assembles all collected
+data into a unified `{"units": [...]}` structure — the same shape as Huawei.
+MikroTik is always a single-unit device, so `units` always contains exactly one entry.
+
+Hardware fields (`serial`, `model`, `bootloader_current_firmware`,
+`bootloader_upgrade_firmware`) are `None` when RouterBOARD is unavailable (e.g., CHR).
+
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "arch": "...", "version": "...", ...}]}
+```
+
+Internally, `get_info` delegates to three private helpers:
+
+- **`_get_software_info`** — mandatory; architecture and RouterOS version
+- **`_get_system_identity`** — mandatory; system hostname
+- **`_get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
 
 ---
 
@@ -532,15 +532,18 @@ tests/
 ├── test_execution_context.py    # ExecutionContext + logger injection
 ├── test_logging_injected.py     # injected logger via get_client()
 ├── test_logging_cli.py          # default Python logger
-├── mikrotik_routeros/
-│   ├── conftest.py              # mikrotik_client fixture
+├── cisco_ios/
+│   ├── conftest.py              # cisco_client fixture
 │   ├── test_backup.py           # ← backup.py
-│   ├── test_bootloader.py       # ← bootloader.py
-│   ├── test_download.py         # ← download.py
+│   ├── test_client.py           # ← client.py
 │   ├── test_info.py             # ← info.py
-│   ├── test_run.py              # ← run.py
-│   ├── test_upgrade.py          # ← upgrade.py
-│   └── test_upload.py           # ← upload.py
+│   └── test_reboot.py           # ← reboot.py
+├── cisco_xr/
+│   ├── conftest.py              # cisco_xr_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_client.py           # ← client.py
+│   ├── test_info.py             # ← info.py
+│   └── test_reboot.py           # ← reboot.py
 ├── huawei_vrp/
 │   ├── conftest.py              # huawei_client fixture
 │   ├── test_backup.py           # ← backup.py
@@ -550,29 +553,26 @@ tests/
 │   ├── test_upload.py           # ← upload.py
 │   ├── test_version.py          # ← version.py
 │   └── test_upgrade.py          # ← upgrade.py
-├── opnsense/
-│   ├── conftest.py              # opnsense_client fixture
+├── mikrotik_routeros/
+│   ├── conftest.py              # mikrotik_client fixture
 │   ├── test_backup.py           # ← backup.py
-│   ├── test_client.py           # ← client.py
-│   ├── test_debug_log.py        # ← debug_log.py
-│   ├── test_detail_log.py       # ← detail_log.py
-│   ├── test_firmware.py         # ← firmware.py
+│   ├── test_bootloader.py       # ← bootloader.py
+│   ├── test_download.py         # ← download.py
 │   ├── test_info.py             # ← info.py
-│   ├── test_progress.py         # ← progress.py
-│   ├── test_reboot.py           # ← reboot.py
-│   └── test_upgrade.py          # ← upgrade.py
-├── cisco_ios/
-│   ├── conftest.py              # cisco_client fixture
-│   ├── test_backup.py           # ← backup.py
-│   ├── test_client.py           # ← client.py
-│   ├── test_info.py             # ← info.py
-│   └── test_reboot.py           # ← reboot.py
-└── cisco_xr/
-    ├── conftest.py              # cisco_xr_client fixture
+│   ├── test_run.py              # ← run.py
+│   ├── test_upgrade.py          # ← upgrade.py
+│   └── test_upload.py           # ← upload.py
+└── opnsense/
+    ├── conftest.py              # opnsense_client fixture
     ├── test_backup.py           # ← backup.py
     ├── test_client.py           # ← client.py
+    ├── test_debug_log.py        # ← debug_log.py
+    ├── test_detail_log.py       # ← detail_log.py
+    ├── test_firmware.py         # ← firmware.py
     ├── test_info.py             # ← info.py
-    └── test_reboot.py           # ← reboot.py
+    ├── test_progress.py         # ← progress.py
+    ├── test_reboot.py           # ← reboot.py
+    └── test_upgrade.py          # ← upgrade.py
 ```
 
 When adding a new module `foo.py`, the corresponding test file is `test_foo.py`.
@@ -677,7 +677,7 @@ The following rules must not be violated:
 - reboot-causing operations must be explicit
 - exceptions control flow
 - operations may explicitly skip unsupported platforms (reported via OperationResult)
-- **information model is platform-specific** — both MikroTik and Huawei expose a unified unit model via `read_info` / `get_info`; MikroTik uses private split helpers (`_get_software_info`, `_get_system_identity`, `_get_hardware_info`) internally
+- **information model is platform-specific** — both Huawei and MikroTik expose a unified unit model via `read_info` / `get_info`; MikroTik uses private split helpers (`_get_software_info`, `_get_system_identity`, `_get_hardware_info`) internally
 - **workflows decide what to collect** — workflows choose which helpers to call and how to handle missing capabilities
 
 These invariants are intentionally strict.

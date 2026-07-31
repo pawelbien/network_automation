@@ -12,11 +12,11 @@ The library is designed to work consistently:
 
 Currently supported platforms:
 
-- **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
-- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
-- **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 - **Cisco IOS/IOS-XE** — device information (`get_info`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_ios"` (same string as Netmiko's Cisco IOS driver)
 - **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
+- **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **MikroTik RouterOS** — info, backup, command execution, firmware upgrade, bootloader upgrade (where applicable)
+- **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 
 ---
 
@@ -35,36 +35,6 @@ Currently supported platforms:
 
 Not every operation is available on every platform.
 
-### MikroTik RouterOS
-
-- Device information (`get_info`) — unified unit model, hardware fields `None` on CHR
-- Backup creation and download (`backup`)
-- Command execution (`run`)
-- Firmware upgrade (`upgrade`)
-  - online (device downloads firmware)
-  - offline (firmware uploaded via SSH/SFTP)
-- Bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only)
-  - optional
-  - platform-dependent (not supported on CHR)
-  - requires reboot to take effect
-
-### Huawei VRP
-
-- Device information (`get_info`) — unified member model, supports single devices and stacks
-- Command execution (`run`)
-- File download (`download`) — retrieve files from device via SFTP
-- File upload (`upload`) — push local files to the device via SFTP
-- Configuration backup and download (`backup`) — named on-device config snapshot (`save <filename>`) + SFTP download, with cleanup of old `nauto_`-prefixed snapshots
-- Firmware upgrade (`upgrade`) — firmware, patch, or both, single-unit devices (see below)
-
-### OPNsense
-
-- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime
-- Update checking (`check_updates`) — read-only, never modifies the device
-- Update within the current release branch (`update`) and migration to a new branch (`upgrade`) — both drive the native `configctl firmware` backend; neither calls the other automatically
-- Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
-- Configuration backup (`backup`) — SFTP GET of the live `/conf/config.xml`; no on-device snapshot step (see below)
-
 ### Cisco IOS/IOS-XE
 
 - Device information (`get_info`) — hostname, version, model, serial via `show version`
@@ -79,28 +49,52 @@ Not every operation is available on every platform.
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
 - Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
 
+### Huawei VRP
+
+- Device information (`get_info`) — unified member model, supports single devices and stacks
+- Command execution (`run`)
+- File download (`download`) — retrieve files from device via SFTP
+- File upload (`upload`) — push local files to the device via SFTP
+- Configuration backup and download (`backup`) — named on-device config snapshot (`save <filename>`) + SFTP download, with cleanup of old `nauto_`-prefixed snapshots
+- Firmware upgrade (`upgrade`) — firmware, patch, or both, single-unit devices (see below)
+
+### MikroTik RouterOS
+
+- Device information (`get_info`) — unified unit model, hardware fields `None` on CHR
+- Backup creation and download (`backup`)
+- Command execution (`run`)
+- Firmware upgrade (`upgrade`)
+  - online (device downloads firmware)
+  - offline (firmware uploaded via SSH/SFTP)
+- Bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only)
+  - optional
+  - platform-dependent (not supported on CHR)
+  - requires reboot to take effect
+
+### OPNsense
+
+- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime
+- Update checking (`check_updates`) — read-only, never modifies the device
+- Update within the current release branch (`update`) and migration to a new branch (`upgrade`) — both drive the native `configctl firmware` backend; neither calls the other automatically
+- Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
+- Configuration backup (`backup`) — SFTP GET of the live `/conf/config.xml`; no on-device snapshot step (see below)
+
 ---
 
 
 ## Device Information
 
-### MikroTik RouterOS
+### Cisco IOS/IOS-XE
 
-`read_info` collects software, identity, and hardware information and returns
-a unified **unit structure**. MikroTik is always a single-unit device, so the
-list always contains exactly one entry.
-
-Hardware fields are `None` on CHR (Cloud Hosted Router), which does not expose
-RouterBOARD hardware.
+`get_info` runs a single `show version` and returns a unified **unit
+structure**. Cisco IOS is always a single-unit device on this platform (no
+stack support yet).
 
 ```python
 info = client.get_info()
 unit = info["units"][0]
 
-print(f"Arch: {unit['arch']}, Version: {unit['version']}, Name: {unit['name']}")
-if unit["serial"]:
-    print(f"Serial: {unit['serial']}, Model: {unit['model']}")
-    print(f"Bootloader: {unit['bootloader_current_firmware']}")
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
 ```
 
 Each unit dict contains:
@@ -109,33 +103,39 @@ Each unit dict contains:
 |---|---|
 | `id` | Always `0` (single-unit device) |
 | `role` | Always `"master"` |
-| `arch` | Architecture (e.g. `arm64`, `x86_64`) |
-| `version` | RouterOS version string |
-| `name` | System identity (hostname) |
-| `serial` | RouterBOARD serial number, or `None` on CHR |
-| `model` | Device model, or `None` on CHR |
-| `bootloader_current_firmware` | Current RouterBOARD firmware, or `None` on CHR |
-| `bootloader_upgrade_firmware` | Available RouterBOARD firmware upgrade, or `None` on CHR |
+| `version` | IOS/IOS-XE version string |
+| `name` | Hostname |
+| `serial` | Processor board ID |
+| `model` | Device model |
 
-Example output (RouterBOARD device):
+All fields are mandatory — a missing field raises `ValueError`.
+
+### Cisco IOS-XR
+
+`get_info` runs `show version` and `show inventory` and returns a unified
+**unit structure**. Cisco IOS-XR is always a single-unit device on this
+platform (no stack support yet). Unlike Cisco IOS/IOS-XE, the serial number
+is not present in `show version` output, hence the extra command.
 
 ```python
-{
-    "units": [
-        {
-            "id": 0,
-            "role": "master",
-            "arch": "arm64",
-            "version": "7.13.5 (stable)",
-            "name": "core-router",
-            "serial": "HG6099981S2",
-            "model": "CCR2004-16G-2S+",
-            "bootloader_current_firmware": "7.19.1",
-            "bootloader_upgrade_firmware": "7.20.7",
-        }
-    ]
-}
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
 ```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `version` | IOS-XR version string |
+| `name` | Hostname |
+| `serial` | Chassis serial number (`show inventory`) |
+| `model` | Device model |
+
+All fields are mandatory — a missing field raises `ValueError`.
 
 ### Huawei VRP
 
@@ -194,6 +194,59 @@ Example output for a 2-member stack:
 }
 ```
 
+### MikroTik RouterOS
+
+`read_info` collects software, identity, and hardware information and returns
+a unified **unit structure**. MikroTik is always a single-unit device, so the
+list always contains exactly one entry.
+
+Hardware fields are `None` on CHR (Cloud Hosted Router), which does not expose
+RouterBOARD hardware.
+
+```python
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"Arch: {unit['arch']}, Version: {unit['version']}, Name: {unit['name']}")
+if unit["serial"]:
+    print(f"Serial: {unit['serial']}, Model: {unit['model']}")
+    print(f"Bootloader: {unit['bootloader_current_firmware']}")
+```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `arch` | Architecture (e.g. `arm64`, `x86_64`) |
+| `version` | RouterOS version string |
+| `name` | System identity (hostname) |
+| `serial` | RouterBOARD serial number, or `None` on CHR |
+| `model` | Device model, or `None` on CHR |
+| `bootloader_current_firmware` | Current RouterBOARD firmware, or `None` on CHR |
+| `bootloader_upgrade_firmware` | Available RouterBOARD firmware upgrade, or `None` on CHR |
+
+Example output (RouterBOARD device):
+
+```python
+{
+    "units": [
+        {
+            "id": 0,
+            "role": "master",
+            "arch": "arm64",
+            "version": "7.13.5 (stable)",
+            "name": "core-router",
+            "serial": "HG6099981S2",
+            "model": "CCR2004-16G-2S+",
+            "bootloader_current_firmware": "7.19.1",
+            "bootloader_upgrade_firmware": "7.20.7",
+        }
+    ]
+}
+```
+
 ### OPNsense
 
 `get_info` reads `hostname`, `opnsense-version`, `uname -r`, and `uptime`
@@ -225,159 +278,9 @@ shell; pass `skip_menu=False` for accounts that still see the console menu
 — the client then selects `shell_menu_option` (default `"8"`) before
 running any command. See `docs/architecture.md` for details.
 
-### Cisco IOS/IOS-XE
-
-`get_info` runs a single `show version` and returns a unified **unit
-structure**. Cisco IOS is always a single-unit device on this platform (no
-stack support yet).
-
-```python
-info = client.get_info()
-unit = info["units"][0]
-
-print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
-```
-
-Each unit dict contains:
-
-| Field | Description |
-|---|---|
-| `id` | Always `0` (single-unit device) |
-| `role` | Always `"master"` |
-| `version` | IOS/IOS-XE version string |
-| `name` | Hostname |
-| `serial` | Processor board ID |
-| `model` | Device model |
-
-All fields are mandatory — a missing field raises `ValueError`.
-
-### Cisco IOS-XR
-
-`get_info` runs `show version` and `show inventory` and returns a unified
-**unit structure**. Cisco IOS-XR is always a single-unit device on this
-platform (no stack support yet). Unlike Cisco IOS/IOS-XE, the serial number
-is not present in `show version` output, hence the extra command.
-
-```python
-info = client.get_info()
-unit = info["units"][0]
-
-print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
-```
-
-Each unit dict contains:
-
-| Field | Description |
-|---|---|
-| `id` | Always `0` (single-unit device) |
-| `role` | Always `"master"` |
-| `version` | IOS-XR version string |
-| `name` | Hostname |
-| `serial` | Chassis serial number (`show inventory`) |
-| `model` | Device model |
-
-All fields are mandatory — a missing field raises `ValueError`.
-
 ---
 
 ## Basic Usage
-
-```python
-from network_automation.factory import get_client
-
-client = get_client(
-    device_type="mikrotik_routeros",
-    host="10.0.0.1",
-    username="admin",
-    password="secret",
-)
-
-info = client.get_info()
-client.backup("daily")
-```
-
-### Huawei VRP
-
-```python
-from network_automation.factory import get_client
-
-client = get_client(
-    device_type="huawei",
-    host="10.0.0.1",
-    username="admin",
-    password="secret",
-)
-
-# Device information
-info = client.get_info()
-for unit in info["units"]:
-    print(f"[{unit['id']}] {unit['role']}: {unit['model']} ESN={unit['esn']}")
-
-# Command execution
-result = client.run(
-    ["display version", "display ip interface brief"],
-    return_result=True,
-)
-for entry in result.metadata["output"]:
-    print(entry["command"], entry["output"])
-
-# File download
-client.download(
-    files=["flash:/config.zip"],
-    local_dir="/tmp/backups",
-)
-
-# File upload
-client.upload(
-    files=["/tmp/firmware.cc", "/tmp/patch.pat"],
-    remote_dir="flash:/",
-)
-
-# Configuration backup: saves a named snapshot on-device (flash:/nauto_daily.zip)
-# and downloads it locally as daily.zip; also removes old nauto_-prefixed
-# snapshots before creating the new one.
-client.backup("daily", download_dir="/tmp/backups")
-```
-
-CLI-style scripts live in `examples/huawei_vrp/`:
-
-- `run_command.py` — SSH key auth, multiple commands, formatted output
-- `read_info.py` — collect and print device information (version, ESN, startup image) per unit
-- `upgrade.py` — firmware and/or patch upgrade for single-unit devices (target versions + local `.cc`/`.pat` files)
-
-### OPNsense
-
-```python
-from network_automation.factory import get_client
-
-client = get_client(
-    device_type="opnsense",
-    host="10.0.0.1",
-    username="admin",
-    password="secret",
-)
-
-info = client.get_info()
-unit = info["units"][0]
-print(f"{unit['hostname']}: {unit['opnsense_version']}")
-
-# Check for available updates (read-only)
-client.check_updates()
-
-# Update within the current release branch; reboots only if the backend
-# decides a base/kernel update requires one
-client.update()
-
-# Migrate to a new release branch; does NOT call update() first
-client.upgrade()
-
-# Configuration backup: downloads the live /conf/config.xml via SFTP as
-# daily.xml — no on-device snapshot is created (see docs/architecture.md)
-client.backup("daily", download_dir="/tmp/backups")
-```
-
-`examples/opnsense/read_info.py` shows `get_info`, printed as a formatted
-summary.
 
 ### Cisco IOS/IOS-XE
 
@@ -431,75 +334,114 @@ summary.
 
 `client.upgrade()` is not implemented yet and raises `NotImplementedError`.
 
+### Huawei VRP
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="huawei",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+# Device information
+info = client.get_info()
+for unit in info["units"]:
+    print(f"[{unit['id']}] {unit['role']}: {unit['model']} ESN={unit['esn']}")
+
+# Command execution
+result = client.run(
+    ["display version", "display ip interface brief"],
+    return_result=True,
+)
+for entry in result.metadata["output"]:
+    print(entry["command"], entry["output"])
+
+# File download
+client.download(
+    files=["flash:/config.zip"],
+    local_dir="/tmp/backups",
+)
+
+# File upload
+client.upload(
+    files=["/tmp/firmware.cc", "/tmp/patch.pat"],
+    remote_dir="flash:/",
+)
+
+# Configuration backup: saves a named snapshot on-device (flash:/nauto_daily.zip)
+# and downloads it locally as daily.zip; also removes old nauto_-prefixed
+# snapshots before creating the new one.
+client.backup("daily", download_dir="/tmp/backups")
+```
+
+CLI-style scripts live in `examples/huawei_vrp/`:
+
+- `run_command.py` — SSH key auth, multiple commands, formatted output
+- `read_info.py` — collect and print device information (version, ESN, startup image) per unit
+- `upgrade.py` — firmware and/or patch upgrade for single-unit devices (target versions + local `.cc`/`.pat` files)
+
+### MikroTik RouterOS
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="mikrotik_routeros",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+info = client.get_info()
+client.backup("daily")
+```
+
+### OPNsense
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="opnsense",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+info = client.get_info()
+unit = info["units"][0]
+print(f"{unit['hostname']}: {unit['opnsense_version']}")
+
+# Check for available updates (read-only)
+client.check_updates()
+
+# Update within the current release branch; reboots only if the backend
+# decides a base/kernel update requires one
+client.update()
+
+# Migrate to a new release branch; does NOT call update() first
+client.upgrade()
+
+# Configuration backup: downloads the live /conf/config.xml via SFTP as
+# daily.xml — no on-device snapshot is created (see docs/architecture.md)
+client.backup("daily", download_dir="/tmp/backups")
+```
+
+`examples/opnsense/read_info.py` shows `get_info`, printed as a formatted
+summary.
+
 ---
 
 ## Firmware Upgrade
 
-Firmware upgrade is implemented for **MikroTik RouterOS**, in a reduced
-form for **Huawei VRP** (firmware and/or patch, single-unit devices — see
-below), and for **OPNsense** via its native `configctl firmware` backend
-(see below). Not yet implemented for **Cisco IOS/IOS-XE** or **Cisco
+Firmware upgrade is implemented for **Huawei VRP** (firmware and/or
+patch, single-unit devices — see below), for **MikroTik RouterOS**, and
+for **OPNsense** via its native `configctl firmware` backend (see
+below). Not yet implemented for **Cisco IOS/IOS-XE** or **Cisco
 IOS-XR** — `client.upgrade()` raises `NotImplementedError`.
-
-Firmware upgrade requires **explicit configuration** of the delivery method.
-
-### Online upgrade (download)
-
-```python
-client = get_client(
-    device_type="mikrotik_routeros",
-    host="10.0.0.1",
-    username="admin",
-    password="secret",
-    firmware_version="7.18.2",
-    firmware_delivery="download",
-    repo_url="https://download.mikrotik.com/routeros",
-)
-
-client.upgrade()
-```
-
-### Bootloader Firmware Upgrade (RouterOS)
-
-MikroTik RouterOS devices support a separate **bootloader
-(RouterBOARD firmware)** upgrade.
-
-Characteristics:
-
-- Bootloader upgrade is a **separate operation** from RouterOS upgrade
-- It is **never implicit**
-- It always requires an **additional reboot**
-- It must be explicitly enabled by the caller
-- It is **not supported on all platforms** (e.g. CHR)
-
-Example:
-
-```python
-client.bootloader_upgrade(return_result=True)
-```
-
-### Offline upgrade (upload)
-
-```python
-client = get_client(
-    device_type="mikrotik_routeros",
-    host="10.0.0.1",
-    username="admin",
-    password="secret",
-    firmware_version="7.18.2",
-    firmware_delivery="upload",
-    repo_path="/opt/firmware/routeros",
-)
-
-client.upgrade()
-```
-
-Rules:
-
-- `firmware_delivery` **must be explicitly set**
-- supported values: `download`, `upload`
-- `download` requires `repo_url`
-- `upload` requires `repo_path`
 
 ### Huawei VRP
 
@@ -571,6 +513,68 @@ before any configuration/apply step runs. Results are recorded in
 Not yet implemented (see `docs/architecture.md` for details): automatic
 rollback after a failed post-reboot validation, and multi-unit/stack
 upgrades.
+
+### MikroTik RouterOS
+
+Firmware upgrade requires **explicit configuration** of the delivery method.
+
+#### Online upgrade (download)
+
+```python
+client = get_client(
+    device_type="mikrotik_routeros",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+    firmware_version="7.18.2",
+    firmware_delivery="download",
+    repo_url="https://download.mikrotik.com/routeros",
+)
+
+client.upgrade()
+```
+
+#### Bootloader Firmware Upgrade (RouterOS)
+
+MikroTik RouterOS devices support a separate **bootloader
+(RouterBOARD firmware)** upgrade.
+
+Characteristics:
+
+- Bootloader upgrade is a **separate operation** from RouterOS upgrade
+- It is **never implicit**
+- It always requires an **additional reboot**
+- It must be explicitly enabled by the caller
+- It is **not supported on all platforms** (e.g. CHR)
+
+Example:
+
+```python
+client.bootloader_upgrade(return_result=True)
+```
+
+#### Offline upgrade (upload)
+
+```python
+client = get_client(
+    device_type="mikrotik_routeros",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+    firmware_version="7.18.2",
+    firmware_delivery="upload",
+    repo_path="/opt/firmware/routeros",
+)
+
+client.upgrade()
+```
+
+Rules:
+
+- `firmware_delivery` **must be explicitly set**
+- supported values: `download`, `upload`
+- `download` requires `repo_url`
+- `upload` requires `repo_path`
 
 ### OPNsense
 
@@ -688,11 +692,11 @@ Tests are designed to run without real network devices.
 ## Documentation
 
 - `docs/architecture.md` — architectural invariants and patterns
-- `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
-- `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
-- `examples/opnsense/` — OPNsense usage examples (`read_info.py`)
 - `examples/cisco_ios/` — Cisco IOS/IOS-XE usage examples (`read_info.py`)
 - `examples/cisco_xr/` — Cisco IOS-XR usage examples (`read_info.py`)
+- `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
+- `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
+- `examples/opnsense/` — OPNsense usage examples (`read_info.py`)
 
 ---
 
