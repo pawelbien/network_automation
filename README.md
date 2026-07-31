@@ -16,6 +16,7 @@ Currently supported platforms:
 - **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 - **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 - **Cisco IOS/IOS-XE** — device information (`get_info`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_ios"` (same string as Netmiko's Cisco IOS driver)
+- **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`); `backup`, `reboot`/`wait_for_reconnect`, and `upgrade` are not implemented yet (raise `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
 
 ---
 
@@ -70,6 +71,11 @@ Not every operation is available on every platform.
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
 - Configuration backup (`backup`) — `show running-config` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
 - Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
+
+### Cisco IOS-XR
+
+- Device information (`get_info`) — hostname, version, model via `show version`; serial via `show inventory`
+- Reboot, backup, firmware upgrade — not implemented yet, raise `NotImplementedError`
 
 ---
 
@@ -243,6 +249,33 @@ Each unit dict contains:
 
 All fields are mandatory — a missing field raises `ValueError`.
 
+### Cisco IOS-XR
+
+`get_info` runs `show version` and `show inventory` and returns a unified
+**unit structure**. Cisco IOS-XR is always a single-unit device on this
+platform (no stack support yet). Unlike Cisco IOS/IOS-XE, the serial number
+is not present in `show version` output, hence the extra command.
+
+```python
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `version` | IOS-XR version string |
+| `name` | Hostname |
+| `serial` | Chassis serial number (`show inventory`) |
+| `model` | Device model |
+
+All fields are mandatory — a missing field raises `ValueError`.
+
 ---
 
 ## Basic Usage
@@ -370,6 +403,29 @@ summary.
 
 `client.upgrade()` is not implemented yet and raises `NotImplementedError`.
 
+### Cisco IOS-XR
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="cisco_xr",
+    host="10.0.0.1",
+    username="admin",
+    password="secret",
+)
+
+info = client.get_info()
+unit = info["units"][0]
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+```
+
+`examples/cisco_xr/read_info.py` shows `get_info`, printed as a formatted
+summary.
+
+`client.backup()`, `client.reboot()`, and `client.upgrade()` are not
+implemented yet and raise `NotImplementedError`.
+
 ---
 
 ## Firmware Upgrade
@@ -377,8 +433,8 @@ summary.
 Firmware upgrade is implemented for **MikroTik RouterOS**, in a reduced
 form for **Huawei VRP** (firmware and/or patch, single-unit devices — see
 below), and for **OPNsense** via its native `configctl firmware` backend
-(see below). Not yet implemented for **Cisco IOS/IOS-XE** —
-`client.upgrade()` raises `NotImplementedError`.
+(see below). Not yet implemented for **Cisco IOS/IOS-XE** or **Cisco
+IOS-XR** — `client.upgrade()` raises `NotImplementedError`.
 
 Firmware upgrade requires **explicit configuration** of the delivery method.
 
@@ -631,6 +687,7 @@ Tests are designed to run without real network devices.
 - `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
 - `examples/opnsense/` — OPNsense usage examples (`read_info.py`)
 - `examples/cisco_ios/` — Cisco IOS/IOS-XE usage examples (`read_info.py`)
+- `examples/cisco_xr/` — Cisco IOS-XR usage examples (`read_info.py`)
 
 ---
 

@@ -220,6 +220,19 @@ info = read_info(client)
 # {"units": [{"id": 0, "role": "master", "version": "...", "name": "...", ...}]}
 ```
 
+**Cisco IOS-XR — unified unit model (two commands)**
+
+Similar to Cisco IOS/IOS-XE's single-unit shape, but `get_info` runs two
+commands instead of one: `show version` (hostname, version, model) and
+`show inventory` (serial) — IOS-XR's `show version` output does not include
+a serial number. No correlation between the two outputs is needed since
+there is always exactly one unit. No stack support yet.
+
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "version": "...", "name": "...", ...}]}
+```
+
 ---
 
 ### 2. Operation / Workflow
@@ -548,12 +561,16 @@ tests/
 │   ├── test_progress.py         # ← progress.py
 │   ├── test_reboot.py           # ← reboot.py
 │   └── test_upgrade.py          # ← upgrade.py
-└── cisco_ios/
-    ├── conftest.py              # cisco_client fixture
-    ├── test_backup.py           # ← backup.py
+├── cisco_ios/
+│   ├── conftest.py              # cisco_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_client.py           # ← client.py
+│   ├── test_info.py             # ← info.py
+│   └── test_reboot.py           # ← reboot.py
+└── cisco_xr/
+    ├── conftest.py              # cisco_xr_client fixture
     ├── test_client.py           # ← client.py
-    ├── test_info.py             # ← info.py
-    └── test_reboot.py           # ← reboot.py
+    └── test_info.py             # ← info.py
 ```
 
 When adding a new module `foo.py`, the corresponding test file is `test_foo.py`.
