@@ -11,11 +11,6 @@ def test_device_dict(cisco_xr_client):
     assert cisco_xr_client.device["passphrase"] == "pass"
 
 
-def test_backup_not_implemented(cisco_xr_client):
-    with pytest.raises(NotImplementedError):
-        cisco_xr_client.backup("test")
-
-
 def test_reboot_not_implemented(cisco_xr_client):
     with pytest.raises(NotImplementedError):
         cisco_xr_client.reboot()

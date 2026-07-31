@@ -569,6 +569,7 @@ tests/
 │   └── test_reboot.py           # ← reboot.py
 └── cisco_xr/
     ├── conftest.py              # cisco_xr_client fixture
+    ├── test_backup.py           # ← backup.py
     ├── test_client.py           # ← client.py
     └── test_info.py             # ← info.py
 ```

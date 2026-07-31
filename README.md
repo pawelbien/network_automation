@@ -16,7 +16,7 @@ Currently supported platforms:
 - **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 - **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 - **Cisco IOS/IOS-XE** — device information (`get_info`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_ios"` (same string as Netmiko's Cisco IOS driver)
-- **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`); `backup`, `reboot`/`wait_for_reconnect`, and `upgrade` are not implemented yet (raise `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
+- **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP); `reboot`/`wait_for_reconnect` and `upgrade` are not implemented yet (raise `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
 
 ---
 
@@ -75,7 +75,8 @@ Not every operation is available on every platform.
 ### Cisco IOS-XR
 
 - Device information (`get_info`) — hostname, version, model via `show version`; serial via `show inventory`
-- Reboot, backup, firmware upgrade — not implemented yet, raise `NotImplementedError`
+- Configuration backup (`backup`) — `show running-config` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
+- Reboot, firmware upgrade — not implemented yet, raise `NotImplementedError`
 
 ---
 
@@ -418,13 +419,17 @@ client = get_client(
 info = client.get_info()
 unit = info["units"][0]
 print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+
+# Configuration backup: captures 'show running-config' over the existing
+# SSH session and writes it to daily.cfg — no SFTP, no on-device snapshot
+client.backup("daily", download_dir="/tmp/backups")
 ```
 
 `examples/cisco_xr/read_info.py` shows `get_info`, printed as a formatted
 summary.
 
-`client.backup()`, `client.reboot()`, and `client.upgrade()` are not
-implemented yet and raise `NotImplementedError`.
+`client.reboot()` and `client.upgrade()` are not implemented yet and raise
+`NotImplementedError`.
 
 ---
 
