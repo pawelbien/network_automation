@@ -6,7 +6,7 @@ from network_automation.results import OperationResult
 
 _HOSTNAME_RE = re.compile(r"^(\S+) uptime is", re.MULTILINE)
 # IOS-XE banners also carry an IOS-code version line ("Version 15.6(2)SP6,");
-# the XE version matches the image file name, so it takes precedence.
+# the XE release version takes precedence.
 _XE_VERSION_RE = re.compile(r"Cisco IOS XE Software, Version (\S+)")
 _VERSION_RE = re.compile(r"[Vv]ersion (\S+),")
 _MODEL_RE = re.compile(r"[Cc]isco (\S+) \(")
