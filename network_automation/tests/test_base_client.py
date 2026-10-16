@@ -118,9 +118,53 @@ def test_classify_connect_failure_prioritizes_reset_text_over_generic_sshexcepti
     assert "invalid key" not in result.lower()
 
 
+def test_classify_connect_failure_paramiko3_dss_retry_valueerror():
+    exc = ValueError("q must be exactly 160, 224, or 256 bits long")
+
+    result = _classify_connect_failure(exc)
+
+    assert "public key rejected" in result.lower()
+    assert "q must be exactly" in result
+    assert "may be offline" not in result.lower()
+
+
+def test_classify_connect_failure_unrecognized_exception_reported_as_is():
+    exc = RuntimeError("something odd")
+
+    result = _classify_connect_failure(exc)
+
+    assert result == "Unexpected connection error (RuntimeError: something odd)."
+
+
+def test_classify_connect_failure_builtin_timeout_keeps_offline_wording():
+    result = _classify_connect_failure(TimeoutError("timed out"))
+
+    assert result == "Connection timeout. Device may be offline."
+
+
 # ---------------------------------------------------------------------------
 # connect()
 # ---------------------------------------------------------------------------
+
+def test_connect_final_exception_reflects_dss_retry_classification(monkeypatch):
+    dss_exc = ValueError("q must be exactly 160, 224, or 256 bits long")
+
+    monkeypatch.setattr(
+        "network_automation.base_client.ConnectHandler",
+        MagicMock(side_effect=dss_exc),
+    )
+
+    client = BaseClient(connect_retries=1, connect_delay=0)
+    client.logger = MagicMock()
+    client.device = {}
+
+    with pytest.raises(NetmikoTimeoutException) as exc_info:
+        client.connect()
+
+    assert "public key rejected" in str(exc_info.value).lower()
+    assert "may be offline" not in str(exc_info.value).lower()
+    assert exc_info.value.__cause__ is dss_exc
+
 
 def test_connect_final_exception_reflects_reset_classification(monkeypatch):
     reset_exc = NetmikoTimeoutException("banner error")

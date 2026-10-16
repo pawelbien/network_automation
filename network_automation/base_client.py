@@ -12,7 +12,8 @@ def _classify_connect_failure(exc: Exception) -> str:
     Classifies why a connection attempt failed, walking __context__ and
     __cause__ (Netmiko's own exceptions carry the underlying paramiko/
     socket error via __context__, not __cause__). Never raises; falls back
-    to "may be offline" when nothing more specific is found.
+    to "may be offline" only for timeouts - any other unrecognized
+    exception is reported as-is.
 
     "Connection reset"/"refused" means the device actively responded and
     rejected the connection - reachable, unlike a genuine no-response
@@ -20,6 +21,10 @@ def _classify_connect_failure(exc: Exception) -> str:
     a device rejects a public key's signature algorithm) is checked last
     since a reset/refused is itself raised as an SSHException and must be
     matched by the more specific wording first.
+
+    paramiko 3.x retries a rejected key file as DSSKey; parsing a non-DSA
+    key as DSA makes cryptography raise ValueError("q must be exactly ...
+    bits long"), which replaces the real rejection reason.
     """
     node = exc
     seen = set()
@@ -34,6 +39,13 @@ def _classify_connect_failure(exc: Exception) -> str:
         if isinstance(node, ConnectionRefusedError) or "connection refused" in text.lower():
             return "Connection refused (nothing accepted the connection on this port)."
 
+        if isinstance(node, ValueError) and "must be exactly" in text and "bits long" in text:
+            return (
+                "Public key rejected by device (real reason masked by paramiko 3.x "
+                f"retrying the key file as DSA: {text!r}) — check key/username on the "
+                "device, or disabled_algorithms."
+            )
+
         # Netmiko's own exceptions subclass SSHException too - excluded so
         # this only fires for the real underlying paramiko exception.
         if isinstance(node, SSHException) and not isinstance(
@@ -43,7 +55,10 @@ def _classify_connect_failure(exc: Exception) -> str:
 
         node = node.__context__ or node.__cause__
 
-    return "Connection timeout. Device may be offline."
+    if isinstance(exc, (NetmikoTimeoutException, TimeoutError)):
+        return "Connection timeout. Device may be offline."
+
+    return f"Unexpected connection error ({type(exc).__name__}: {exc})."
 
 
 def _summarize_reasons(reasons_by_attempt: list[tuple[int, str]]) -> str:
