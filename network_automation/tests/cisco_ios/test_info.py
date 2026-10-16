@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 from network_automation.platforms.cisco_ios.info import (
     _parse_show_version,
+    extract_discovery_facts,
     get_info,
     read_info,
 )
@@ -111,3 +112,16 @@ def test_read_info_default_return(monkeypatch, cisco_client, fake_conn):
 
     assert "units" in info
     assert info["units"][0]["serial"] == "FCW1234A0BC"
+
+
+# ---------- extract_discovery_facts ----------
+
+def test_extract_discovery_facts(monkeypatch, cisco_client, fake_conn):
+    monkeypatch.setattr(cisco_client, "connect", lambda: None)
+    monkeypatch.setattr(cisco_client, "disconnect", lambda: None)
+    cisco_client.conn = fake_conn
+    fake_conn.send_command.return_value = _SHOW_VERSION
+
+    facts = extract_discovery_facts(read_info(cisco_client)["units"])
+
+    assert facts == {"serial": "FCW1234A0BC", "software_version": "17.9.4a"}

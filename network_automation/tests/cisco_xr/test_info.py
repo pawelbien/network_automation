@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from network_automation.platforms.cisco_xr.info import (
     _parse_show_version,
     _parse_inventory,
+    extract_discovery_facts,
     get_info,
     read_info,
 )
@@ -127,3 +128,16 @@ def test_read_info_default_return(monkeypatch, cisco_xr_client, fake_conn):
 
     assert "units" in info
     assert info["units"][0]["serial"] == "FOX2401A1BC"
+
+
+# ---------- extract_discovery_facts ----------
+
+def test_extract_discovery_facts(monkeypatch, cisco_xr_client, fake_conn):
+    monkeypatch.setattr(cisco_xr_client, "connect", lambda: None)
+    monkeypatch.setattr(cisco_xr_client, "disconnect", lambda: None)
+    cisco_xr_client.conn = fake_conn
+    fake_conn.send_command.side_effect = [_SHOW_VERSION, _SHOW_INVENTORY]
+
+    facts = extract_discovery_facts(read_info(cisco_xr_client)["units"])
+
+    assert facts == {"serial": "FOX2401A1BC", "software_version": "7.3.2"}

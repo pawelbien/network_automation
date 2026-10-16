@@ -60,6 +60,25 @@ def get_info(client):
     return {"units": [unit]}
 
 
+def extract_discovery_facts(units):
+    """
+    Reduce get_info()'s unit list to the single-unit CMDB facts Device
+    Discovery needs: serial number and software version.
+
+    Mirrors mikrotik_routeros.info.extract_discovery_facts(); this platform
+    has no stacking concept in this library so always uses units[0].
+    software_version is the bare version get_info() already reports, which
+    is the format SoftwareVersion.version uses for this platform.
+
+    Returns dict: {"serial": str, "software_version": str}.
+    """
+    unit = units[0]
+    return {
+        "serial": unit["serial"],
+        "software_version": unit["version"],
+    }
+
+
 def read_info(client, *, return_result: bool = False):
     result = OperationResult(success=True, operation="info")
     result.mark_started()
