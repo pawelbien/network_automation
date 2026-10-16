@@ -20,6 +20,25 @@ cisco C9300-24T (X86) processor with 1441075K/6147K bytes of memory.
 Processor board ID FCW1234A0BC
 """
 
+_SHOW_VERSION_XE_3 = """
+Cisco IOS XE Software, Version 03.18.06.SP.156-2.SP6-ext
+Cisco IOS Software, ASR920 Software (PPC_LINUX_IOSD-UNIVERSALK9_NPE-M), Version 15.6(2)SP6, RELEASE SOFTWARE (fc1)
+
+r015 uptime is 1 year, 2 weeks, 3 days, 4 hours, 5 minutes
+
+cisco ASR-920-4SZ-A (Freescale P2020) processor (revision 1.0 GHz) with 900263K/6147K bytes of memory.
+Processor board ID CAT2102U4MZ
+"""
+
+_SHOW_VERSION_CLASSIC = """
+Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(7)E8, RELEASE SOFTWARE (fc2)
+
+sw01 uptime is 5 days, 1 hour, 2 minutes
+
+cisco WS-C2960X-24TS-L (APM86XXX) processor (revision B0) with 524288K bytes of memory.
+Processor board ID FOC1234X5YZ
+"""
+
 
 @pytest.fixture
 def fake_conn():
@@ -32,9 +51,27 @@ def test_parse_show_version():
     parsed = _parse_show_version(_SHOW_VERSION)
 
     assert parsed["name"] == "Switch"
-    assert parsed["version"] == "17.9.4a"
+    assert parsed["version"] == "17.09.04a"
     assert parsed["model"] == "C9300-24T"
     assert parsed["serial"] == "FCW1234A0BC"
+
+
+def test_parse_show_version_xe_3_prefers_xe_version():
+    parsed = _parse_show_version(_SHOW_VERSION_XE_3)
+
+    assert parsed["name"] == "r015"
+    assert parsed["version"] == "03.18.06.SP.156-2.SP6-ext"
+    assert parsed["model"] == "ASR-920-4SZ-A"
+    assert parsed["serial"] == "CAT2102U4MZ"
+
+
+def test_parse_show_version_classic_ios():
+    parsed = _parse_show_version(_SHOW_VERSION_CLASSIC)
+
+    assert parsed["name"] == "sw01"
+    assert parsed["version"] == "15.2(7)E8"
+    assert parsed["model"] == "WS-C2960X-24TS-L"
+    assert parsed["serial"] == "FOC1234X5YZ"
 
 
 def test_parse_show_version_missing_hostname():
@@ -65,13 +102,13 @@ def test_get_info_parsing(cisco_client, fake_conn):
 
     info = get_info(cisco_client)
 
-    assert cisco_client.current_version == "17.9.4a"
+    assert cisco_client.current_version == "17.09.04a"
     assert info == {
         "units": [
             {
                 "id": 0,
                 "role": "master",
-                "version": "17.9.4a",
+                "version": "17.09.04a",
                 "name": "Switch",
                 "serial": "FCW1234A0BC",
                 "model": "C9300-24T",
@@ -97,7 +134,7 @@ def test_read_info_returns_result(monkeypatch, cisco_client, fake_conn):
     assert result.operation == "info"
     unit = result.metadata["units"][0]
     assert unit["name"] == "Switch"
-    assert unit["version"] == "17.9.4a"
+    assert unit["version"] == "17.09.04a"
     assert unit["model"] == "C9300-24T"
     assert unit["serial"] == "FCW1234A0BC"
 
@@ -124,4 +161,4 @@ def test_extract_discovery_facts(monkeypatch, cisco_client, fake_conn):
 
     facts = extract_discovery_facts(read_info(cisco_client)["units"])
 
-    assert facts == {"serial": "FCW1234A0BC", "software_version": "17.9.4a"}
+    assert facts == {"serial": "FCW1234A0BC", "software_version": "17.09.04a"}

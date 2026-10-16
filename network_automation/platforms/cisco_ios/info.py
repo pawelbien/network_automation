@@ -5,6 +5,9 @@ import re
 from network_automation.results import OperationResult
 
 _HOSTNAME_RE = re.compile(r"^(\S+) uptime is", re.MULTILINE)
+# IOS-XE banners also carry an IOS-code version line ("Version 15.6(2)SP6,");
+# the XE version matches the image file name, so it takes precedence.
+_XE_VERSION_RE = re.compile(r"Cisco IOS XE Software, Version (\S+)")
 _VERSION_RE = re.compile(r"[Vv]ersion (\S+),")
 _MODEL_RE = re.compile(r"[Cc]isco (\S+) \(")
 _SERIAL_RE = re.compile(r"Processor board ID (\S+)")
@@ -15,7 +18,7 @@ def _parse_show_version(output: str) -> dict:
     if not hostname:
         raise ValueError("Hostname not found in 'show version' output")
 
-    version = _VERSION_RE.search(output)
+    version = _XE_VERSION_RE.search(output) or _VERSION_RE.search(output)
     if not version:
         raise ValueError("Version not found in 'show version' output")
 

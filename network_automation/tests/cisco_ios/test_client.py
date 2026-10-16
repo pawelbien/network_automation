@@ -21,14 +21,14 @@ def test_upgrade_not_implemented(cisco_client):
 @pytest.fixture
 def info_result():
     result = OperationResult(success=True, operation="info")
-    result.metadata["units"] = [{"id": 0, "role": "master", "version": "17.9.4a", "name": "Switch", "serial": "FCW1234A0BC", "model": "C9300-24T"}]
+    result.metadata["units"] = [{"id": 0, "role": "master", "version": "17.09.04a", "name": "Switch", "serial": "FCW1234A0BC", "model": "C9300-24T"}]
     return result
 
 
 def test_get_discovery_facts(monkeypatch, cisco_client, info_result):
     monkeypatch.setattr(cisco_client, "get_info", lambda return_result=False: info_result)
 
-    assert cisco_client.get_discovery_facts() == {"serial": "FCW1234A0BC", "software_version": "17.9.4a"}
+    assert cisco_client.get_discovery_facts() == {"serial": "FCW1234A0BC", "software_version": "17.09.04a"}
 
 
 def test_get_discovery_facts_return_result(monkeypatch, cisco_client, info_result):
@@ -38,5 +38,5 @@ def test_get_discovery_facts_return_result(monkeypatch, cisco_client, info_resul
 
     assert result is info_result
     assert result.metadata["serial"] == "FCW1234A0BC"
-    assert result.metadata["software_version"] == "17.9.4a"
+    assert result.metadata["software_version"] == "17.09.04a"
     assert "units" in result.metadata
