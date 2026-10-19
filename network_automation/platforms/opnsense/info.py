@@ -96,12 +96,19 @@ def _get_smbios(client, key):
 
 
 def _get_serial(client):
-    """Appliance serial number (the number on Deciso appliance labels)."""
+    """
+    Appliance serial number (the number on Deciso appliance labels). Not
+    every Deciso appliance fills it in SMBIOS - some expose only the
+    serial, some neither serial nor SKU.
+    """
     return _get_smbios(client, "smbios.system.serial")
 
 
 def _get_sku(client):
-    """Appliance model SKU, e.g. "DEC2752" on Deciso appliances."""
+    """
+    Appliance model SKU, e.g. "DEC2752" on Deciso appliances. Often missing
+    even on Deciso hardware (see _get_serial()).
+    """
     return _get_smbios(client, "smbios.system.sku")
 
 

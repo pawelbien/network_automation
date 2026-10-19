@@ -247,6 +247,8 @@ with no correlation between outputs:
   `None`. On a VM (`vm_guest` other than `"none"`) SMBIOS is not read and
   `serial`/`model` are `None`: the hypervisor fills SMBIOS with its own values
   (e.g. VMware's `"VMware-42 38 ..."` serial), not a device identity.
+  Deciso appliances do not always populate SMBIOS either: some expose serial
+  and SKU, some only the serial, some neither.
 
 ```python
 info = read_info(client)

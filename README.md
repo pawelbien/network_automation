@@ -276,6 +276,10 @@ Each unit dict contains:
 | `serial` | SMBIOS system serial (e.g. `66911`), or `None` if missing/empty/vendor placeholder or on a VM (best-effort) |
 | `model` | SMBIOS system SKU (e.g. `DEC2752`), or `None` if missing/empty/vendor placeholder or on a VM (best-effort) |
 
+Deciso appliances do not always populate SMBIOS: some expose serial and SKU,
+some only the serial, some neither — `serial`/`model` are then `None` on
+bare metal too.
+
 OPNsense's SSH console normally shows a numbered menu (`0) Logout` … `8)
 Shell`) instead of a shell prompt directly. The client assumes
 (`skip_menu=True`, the default) that the SSH account already lands in a
