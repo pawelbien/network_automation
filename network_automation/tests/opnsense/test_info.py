@@ -8,6 +8,7 @@ from network_automation.platforms.opnsense.info import (
     _get_opnsense_version,
     _get_freebsd_version,
     _get_uptime,
+    _get_serial,
     get_info,
     read_info,
     extract_discovery_facts,
@@ -24,6 +25,7 @@ _FREEBSD_VERSION = "14.1-RELEASE-p6"
 _UPTIME_RAW = "3:45PM up 10 days, 4:32, 1 user, load averages: 0.10, 0.08, 0.05"
 _UPTIME_DURATION = "10 days, 4:32"
 _LOAD_AVERAGES = (0.10, 0.08, 0.05)
+_SERIAL = "66911"
 
 
 # ---------- Fixtures ----------
@@ -120,6 +122,28 @@ def test_get_uptime_falls_back_when_loads_not_found(opnsense_client, fake_conn):
     assert _get_uptime(opnsense_client) == ("54 mins", None)
 
 
+def test_get_serial_parsing(opnsense_client, fake_conn):
+    fake_conn.send_command.return_value = _SERIAL + "\n"
+    opnsense_client.conn = fake_conn
+
+    assert _get_serial(opnsense_client) == _SERIAL
+
+
+@pytest.mark.parametrize("output", ["", "   ", "To be filled by O.E.M.", "Not Specified", "None"])
+def test_get_serial_missing_or_placeholder_returns_none(opnsense_client, fake_conn, output):
+    fake_conn.send_command.return_value = output
+    opnsense_client.conn = fake_conn
+
+    assert _get_serial(opnsense_client) is None
+
+
+def test_get_serial_command_error_returns_none(opnsense_client, fake_conn):
+    fake_conn.send_command.side_effect = Exception("kenv: unable to get smbios.system.serial")
+    opnsense_client.conn = fake_conn
+
+    assert _get_serial(opnsense_client) is None
+
+
 # ---------- get_info ----------
 
 def test_get_info_parsing(opnsense_client, fake_conn):
@@ -128,6 +152,7 @@ def test_get_info_parsing(opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _SERIAL,
     ]
     opnsense_client.conn = fake_conn
 
@@ -143,6 +168,7 @@ def test_get_info_parsing(opnsense_client, fake_conn):
                 "freebsd_version": _FREEBSD_VERSION,
                 "uptime": _UPTIME_DURATION,
                 "load_averages": _LOAD_AVERAGES,
+                "serial": _SERIAL,
             }
         ]
     }
@@ -171,6 +197,7 @@ def test_read_info_returns_units(monkeypatch, opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _SERIAL,
     ]
 
     info = read_info(opnsense_client)
@@ -193,6 +220,7 @@ def test_read_info_returns_result(monkeypatch, opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _SERIAL,
     ]
 
     result = read_info(opnsense_client, return_result=True)
@@ -216,6 +244,7 @@ def test_read_info_calls_ensure_shell(monkeypatch, opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _SERIAL,
     ]
 
     read_info(opnsense_client)
@@ -294,9 +323,15 @@ def test_is_newer_version_false_when_unchanged():
 # ---------- extract_discovery_facts ----------
 
 def test_extract_discovery_facts_strips_decoration():
-    units = [{"opnsense_version": "OPNsense 26.1.11_10 (amd64)"}]
+    units = [{"opnsense_version": "OPNsense 26.1.11_10 (amd64)", "serial": _SERIAL}]
 
-    assert extract_discovery_facts(units) == {"serial": None, "software_version": "26.1.11_10"}
+    assert extract_discovery_facts(units) == {"serial": _SERIAL, "software_version": "26.1.11_10"}
+
+
+def test_extract_discovery_facts_missing_serial():
+    units = [{"opnsense_version": "OPNsense 26.1.11_10 (amd64)", "serial": None}]
+
+    assert extract_discovery_facts(units)["serial"] is None
 
 
 def test_extract_discovery_facts_bare_branch_version():

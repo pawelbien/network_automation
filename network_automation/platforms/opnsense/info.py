@@ -63,6 +63,39 @@ def _get_freebsd_version(client):
     return output.strip() or None
 
 
+# SMBIOS placeholder strings vendors leave in unset serial fields.
+_SERIAL_PLACEHOLDERS = {
+    "none",
+    "n/a",
+    "0",
+    "default string",
+    "not specified",
+    "not applicable",
+    "system serial number",
+    "to be filled by o.e.m.",
+}
+
+
+def _get_serial(client):
+    """
+    Read the appliance serial number from SMBIOS (`kenv
+    smbios.system.serial`, the number on Deciso appliance labels).
+    Best-effort: returns None if the command fails, the variable is
+    missing (e.g. on some VMs), or the value is empty or a vendor
+    placeholder, instead of raising.
+    """
+    try:
+        output = _send(client, "/bin/kenv -q smbios.system.serial")
+    except Exception:
+        return None
+
+    serial = output.strip().strip('"').strip()
+    if not serial or serial.lower() in _SERIAL_PLACEHOLDERS:
+        return None
+
+    return serial
+
+
 _UPTIME_DURATION_RE = re.compile(
     r"^(?P<duration>.*?),\s*\d+\s+users?,\s*load averages:\s*(?P<loads>.*)$"
 )
@@ -180,17 +213,18 @@ def extract_discovery_facts(units):
 
     software_version is the bare version substring of opnsense-version's
     decorated output ("OPNsense 26.1.11_10 (amd64)" -> "26.1.11_10"), build
-    counter included, to exact-match SoftwareVersion.version. serial is
-    always None - OPNsense exposes no device serial number.
+    counter included, to exact-match SoftwareVersion.version. serial is the
+    SMBIOS system serial, None when unavailable (e.g. on VMs).
 
-    Returns dict: {"serial": None, "software_version": str}.
+    Returns dict: {"serial": str | None, "software_version": str}.
     """
-    raw = units[0]["opnsense_version"]
+    unit = units[0]
+    raw = unit["opnsense_version"]
     match = _VERSION_RE.search(raw)
     if not match:
         raise ValueError(f"Cannot parse OPNsense version: {raw!r}")
     return {
-        "serial": None,
+        "serial": unit.get("serial"),
         "software_version": match.group(0),
     }
 
@@ -210,6 +244,7 @@ def get_info(client):
                 "freebsd_version":   str | None,            # best-effort
                 "uptime":            str | None,            # best-effort, e.g. "10 days, 4:32"
                 "load_averages":     tuple[float, float, float] | None,  # best-effort
+                "serial":            str | None,            # best-effort, None on most VMs
             }
         ]
     }
@@ -223,6 +258,7 @@ def get_info(client):
 
     freebsd_version = _get_freebsd_version(client)
     uptime, load_averages = _get_uptime(client)
+    serial = _get_serial(client)
 
     unit = {
         "id": 0,
@@ -232,6 +268,7 @@ def get_info(client):
         "freebsd_version": freebsd_version,
         "uptime": uptime,
         "load_averages": load_averages,
+        "serial": serial,
     }
 
     return {"units": [unit]}

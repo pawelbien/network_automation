@@ -112,14 +112,14 @@ def test_backup_delegates_to_workflow(mocker, opnsense_client):
 @pytest.fixture
 def info_result():
     result = OperationResult(success=True, operation="info")
-    result.metadata["units"] = [{"id": 0, "role": "master", "hostname": "fw01", "opnsense_version": "OPNsense 26.1.11_10 (amd64)"}]
+    result.metadata["units"] = [{"id": 0, "role": "master", "hostname": "fw01", "opnsense_version": "OPNsense 26.1.11_10 (amd64)", "serial": "66911"}]
     return result
 
 
 def test_get_discovery_facts(monkeypatch, opnsense_client, info_result):
     monkeypatch.setattr(opnsense_client, "get_info", lambda return_result=False: info_result)
 
-    assert opnsense_client.get_discovery_facts() == {"serial": None, "software_version": "26.1.11_10"}
+    assert opnsense_client.get_discovery_facts() == {"serial": "66911", "software_version": "26.1.11_10"}
 
 
 def test_get_discovery_facts_return_result(monkeypatch, opnsense_client, info_result):
@@ -128,6 +128,6 @@ def test_get_discovery_facts_return_result(monkeypatch, opnsense_client, info_re
     result = opnsense_client.get_discovery_facts(return_result=True)
 
     assert result is info_result
-    assert result.metadata["serial"] is None
+    assert result.metadata["serial"] == "66911"
     assert result.metadata["software_version"] == "26.1.11_10"
     assert "units" in result.metadata
