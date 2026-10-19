@@ -58,6 +58,12 @@ should use a single connection attempt (`connect_retries=1`, since
 retrying with identical parameters cannot fix a deterministic
 rejection), wait a cooldown, then retry once with `disabled_algorithms`.
 
+Device types known to need legacy SSH are flagged in Nautobot with the
+Boolean custom field `legacy_ssh` on DeviceType. `nautobot_helpers`'
+`PBDeviceHelper.get_device_connect_params()` then adds
+`disabled_algorithms` up front, so those devices connect on the first
+attempt and J021 skips the cooldown-and-retry fallback.
+
 ## Takeaway
 
 A `NetmikoTimeoutException` against an older VRP device is not
