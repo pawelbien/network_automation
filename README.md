@@ -62,7 +62,7 @@ Not every operation is available on every platform.
 ### Juniper Junos
 
 - Device information (`get_info`) — hostname, version, model via `show version`; serial via `show chassis hardware`
-- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model"}`; `software_version` is the full release string including the build number (`"21.4R3-S3.4"`)
+- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model"}`; `software_version` is the full release string including the build number (`"21.4R9-S9.9"`)
 - Configuration backup (`backup`) — `show configuration | display set` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
 - Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
@@ -229,7 +229,7 @@ Each unit dict contains:
 |---|---|
 | `id` | Always `0` (single-unit device) |
 | `role` | Always `"master"` |
-| `version` | Junos release including build number, e.g. `"21.4R3-S3.4"` |
+| `version` | Junos release including build number, e.g. `"21.4R9-S9.9"` |
 | `name` | Hostname |
 | `serial` | Chassis serial number (`show chassis hardware`) |
 | `model` | Model as printed by `show version`, lowercase, e.g. `"ex4600-40f"` |
@@ -452,7 +452,7 @@ info = client.get_info()
 unit = info["units"][0]
 print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
 
-# Device Discovery facts: {"serial": ..., "software_version": "21.4R3-S3.4", "model": "ex4600-40f"}
+# Device Discovery facts: {"serial": ..., "software_version": "21.4R9-S9.9", "model": "ex4600-40f"}
 facts = client.get_discovery_facts()
 
 # Configuration backup: captures 'show configuration | display set' over the

@@ -5,7 +5,7 @@ Example: read Device Discovery facts from a Juniper Junos device.
 
 Prints the CMDB facts used by Device Discovery: the chassis serial, the
 model from 'show version' ("ex4600-40f") and the full software version
-including the build number ("21.4R3-S3.4"), as matched against the
+including the build number ("21.4R9-S9.9"), as matched against the
 SoftwareVersion catalog.
 """
 

@@ -222,7 +222,7 @@ The version comes from the `Junos:` line, with a fallback to the first
 
 ```python
 info = read_info(client)
-# {"units": [{"id": 0, "role": "master", "version": "21.4R3-S3.4",
+# {"units": [{"id": 0, "role": "master", "version": "21.4R9-S9.9",
 #             "name": "...", "serial": "...", "model": "ex4600-40f"}]}
 ```
 
@@ -303,7 +303,7 @@ the exact string stored in the Nautobot `SoftwareVersion` catalog:
 | MikroTik RouterOS | channel suffix stripped, e.g. `"7.13.5"` | RouterBOARD serial, `None` on CHR | — |
 | Cisco IOS/IOS-XE | XE release string, e.g. `"03.18.06.SP.156-2.SP6-ext"` | `show version` | — |
 | Cisco IOS-XR | e.g. `"25.2.2"` | `show inventory` | — |
-| Juniper Junos | full release incl. build, e.g. `"21.4R3-S3.4"` | `Chassis` line of `show chassis hardware` | `show version` model, e.g. `"ex4600-40f"` |
+| Juniper Junos | full release incl. build, e.g. `"21.4R9-S9.9"` | `Chassis` line of `show chassis hardware` | `show version` model, e.g. `"ex4600-40f"` |
 | OPNsense | bare version incl. `_N`, e.g. `"26.1.11_10"` | SMBIOS serial, `None` on VMs | SMBIOS SKU, `None` on VMs |
 
 ```python
