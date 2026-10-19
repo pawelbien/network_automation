@@ -49,9 +49,9 @@ fpc0:
 --------------------------------------------------------------------------
 Hostname: sw1
 Model: ex4550-32f
-Junos: 15.1R7-S6.3
-JUNOS EX  Software Suite [15.1R7-S6.3]
-JUNOS EX 4500 Software Suite [15.1R7-S6.3]
+Junos: 15.1R9-S9.9
+JUNOS EX  Software Suite [15.1R9-S9.9]
+JUNOS EX 4500 Software Suite [15.1R9-S9.9]
 
 {master:0}
 """
@@ -61,17 +61,17 @@ fpc0:
 --------------------------------------------------------------------------
 Hostname: sw-vc1
 Model: ex4600-40f
-Junos: 21.4R3-S3.4
-JUNOS Base OS boot [21.4R3-S3.4]
-JUNOS jsd [i386-21.4R3-S3.4-jet-1]
-JUNOS Host Software [21.4R3-S3.4]
+Junos: 21.4R9-S9.9
+JUNOS Base OS boot [21.4R9-S9.9]
+JUNOS jsd [i386-21.4R9-S9.9-jet-1]
+JUNOS Host Software [21.4R9-S9.9]
 
 fpc1:
 --------------------------------------------------------------------------
 Hostname: sw-vc1
 Model: ex4600-40f
-Junos: 21.4R3-S3.4
-JUNOS Base OS boot [21.4R3-S3.4]
+Junos: 21.4R9-S9.9
+JUNOS Base OS boot [21.4R9-S9.9]
 
 {master:0}
 """
@@ -149,13 +149,13 @@ def test_parse_show_version_dual_re_uses_first_block():
 def test_parse_show_version_ex4550():
     parsed = _parse_show_version(_SHOW_VERSION_EX4550)
 
-    assert parsed == {"name": "sw1", "version": "15.1R7-S6.3", "model": "ex4550-32f"}
+    assert parsed == {"name": "sw1", "version": "15.1R9-S9.9", "model": "ex4550-32f"}
 
 
 def test_parse_show_version_virtual_chassis():
     parsed = _parse_show_version(_SHOW_VERSION_VC)
 
-    assert parsed == {"name": "sw-vc1", "version": "21.4R3-S3.4", "model": "ex4600-40f"}
+    assert parsed == {"name": "sw-vc1", "version": "21.4R9-S9.9", "model": "ex4600-40f"}
 
 
 def test_get_info_virtual_chassis(juniper_junos_client, fake_conn):
@@ -166,7 +166,7 @@ def test_get_info_virtual_chassis(juniper_junos_client, fake_conn):
 
     assert unit["serial"] == "QB0000000001"
     assert unit["model"] == "ex4600-40f"
-    assert unit["version"] == "21.4R3-S3.4"
+    assert unit["version"] == "21.4R9-S9.9"
 
 
 def test_parse_show_version_missing_hostname():
