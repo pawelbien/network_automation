@@ -73,8 +73,8 @@ Not every operation is available on every platform.
 
 ### OPNsense
 
-- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime, SMBIOS serial and SKU
-- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model"}` for CMDB sync; `software_version` is the bare version (`"26.1.11_10"`), `serial`/`model` are `None` when SMBIOS has no value (typical on VMs)
+- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime, SMBIOS serial and SKU (bare metal only)
+- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model"}` for CMDB sync; `software_version` is the bare version (`"26.1.11_10"`), `serial`/`model` are `None` when SMBIOS has no value and always `None` on VMs
 - Update checking (`check_updates`) — read-only, never modifies the device
 - Update within the current release branch (`update`) and migration to a new branch (`upgrade`) — both drive the native `configctl firmware` backend; neither calls the other automatically
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
@@ -251,8 +251,8 @@ Example output (RouterBOARD device):
 ### OPNsense
 
 `get_info` reads `hostname`, `opnsense-version`, `uname -r`, `uptime`, and
-the SMBIOS `smbios.system.serial`/`smbios.system.sku` kenv variables
-over an SSH shell and returns a unified **unit structure**. OPNsense is
+`kern.vm_guest` and, on bare metal only, the SMBIOS
+`smbios.system.serial`/`smbios.system.sku` kenv variables over an SSH shell and returns a unified **unit structure**. OPNsense is
 always a single-unit device.
 
 ```python
@@ -272,8 +272,9 @@ Each unit dict contains:
 | `opnsense_version` | OPNsense version string |
 | `freebsd_version` | Underlying FreeBSD version, or `None` if unavailable (best-effort) |
 | `uptime` | Raw BSD `uptime` output, or `None` if unavailable (best-effort) |
-| `serial` | SMBIOS system serial (e.g. `66911`), or `None` if missing/empty/vendor placeholder (best-effort) |
-| `model` | SMBIOS system SKU (e.g. `DEC2752`), or `None` if missing/empty/vendor placeholder (best-effort) |
+| `vm_guest` | Hypervisor detected by the kernel (`none` on bare metal, e.g. `vmware`), or `None` if unavailable (best-effort) |
+| `serial` | SMBIOS system serial (e.g. `66911`), or `None` if missing/empty/vendor placeholder or on a VM (best-effort) |
+| `model` | SMBIOS system SKU (e.g. `DEC2752`), or `None` if missing/empty/vendor placeholder or on a VM (best-effort) |
 
 OPNsense's SSH console normally shows a numbered menu (`0) Logout` … `8)
 Shell`) instead of a shell prompt directly. The client assumes

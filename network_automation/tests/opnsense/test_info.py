@@ -10,6 +10,7 @@ from network_automation.platforms.opnsense.info import (
     _get_uptime,
     _get_serial,
     _get_sku,
+    _get_vm_guest,
     get_info,
     read_info,
     extract_discovery_facts,
@@ -28,6 +29,7 @@ _UPTIME_DURATION = "10 days, 4:32"
 _LOAD_AVERAGES = (0.10, 0.08, 0.05)
 _SERIAL = "66911"
 _SKU = "DEC2752"
+_VM_GUEST_NONE = "none"
 
 
 # ---------- Fixtures ----------
@@ -161,6 +163,21 @@ def test_get_sku_missing_returns_none(opnsense_client, fake_conn):
     assert _get_sku(opnsense_client) is None
 
 
+def test_get_vm_guest_parsing(opnsense_client, fake_conn):
+    fake_conn.send_command.return_value = "vmware\n"
+    opnsense_client.conn = fake_conn
+
+    assert _get_vm_guest(opnsense_client) == "vmware"
+    fake_conn.send_command.assert_called_once_with("/sbin/sysctl -n kern.vm_guest")
+
+
+def test_get_vm_guest_command_error_returns_none(opnsense_client, fake_conn):
+    fake_conn.send_command.side_effect = Exception("unknown oid")
+    opnsense_client.conn = fake_conn
+
+    assert _get_vm_guest(opnsense_client) is None
+
+
 # ---------- get_info ----------
 
 def test_get_info_parsing(opnsense_client, fake_conn):
@@ -169,6 +186,7 @@ def test_get_info_parsing(opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _VM_GUEST_NONE,
         _SERIAL,
         _SKU,
     ]
@@ -186,6 +204,7 @@ def test_get_info_parsing(opnsense_client, fake_conn):
                 "freebsd_version": _FREEBSD_VERSION,
                 "uptime": _UPTIME_DURATION,
                 "load_averages": _LOAD_AVERAGES,
+                "vm_guest": _VM_GUEST_NONE,
                 "serial": _SERIAL,
                 "model": _SKU,
             }
@@ -193,6 +212,42 @@ def test_get_info_parsing(opnsense_client, fake_conn):
     }
     assert opnsense_client.hostname == _HOSTNAME
     assert opnsense_client.opnsense_version == _OPNSENSE_VERSION
+
+
+def test_get_info_vm_skips_smbios(opnsense_client, fake_conn):
+    fake_conn.send_command.side_effect = [
+        _HOSTNAME,
+        _OPNSENSE_VERSION,
+        _FREEBSD_VERSION,
+        _UPTIME_RAW,
+        "vmware",
+    ]
+    opnsense_client.conn = fake_conn
+
+    unit = get_info(opnsense_client)["units"][0]
+
+    assert unit["vm_guest"] == "vmware"
+    assert unit["serial"] is None
+    assert unit["model"] is None
+    assert fake_conn.send_command.call_count == 5
+
+
+def test_get_info_vm_guest_unknown_reads_smbios(opnsense_client, fake_conn):
+    fake_conn.send_command.side_effect = [
+        _HOSTNAME,
+        _OPNSENSE_VERSION,
+        _FREEBSD_VERSION,
+        _UPTIME_RAW,
+        "",
+        _SERIAL,
+        _SKU,
+    ]
+    opnsense_client.conn = fake_conn
+
+    unit = get_info(opnsense_client)["units"][0]
+
+    assert unit["vm_guest"] is None
+    assert unit["serial"] == _SERIAL
 
 
 def test_get_info_missing_version_raises(opnsense_client, fake_conn):
@@ -216,6 +271,7 @@ def test_read_info_returns_units(monkeypatch, opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _VM_GUEST_NONE,
         _SERIAL,
         _SKU,
     ]
@@ -240,6 +296,7 @@ def test_read_info_returns_result(monkeypatch, opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _VM_GUEST_NONE,
         _SERIAL,
         _SKU,
     ]
@@ -265,6 +322,7 @@ def test_read_info_calls_ensure_shell(monkeypatch, opnsense_client, fake_conn):
         _OPNSENSE_VERSION,
         _FREEBSD_VERSION,
         _UPTIME_RAW,
+        _VM_GUEST_NONE,
         _SERIAL,
         _SKU,
     ]

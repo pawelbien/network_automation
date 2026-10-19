@@ -105,6 +105,21 @@ def _get_sku(client):
     return _get_smbios(client, "smbios.system.sku")
 
 
+def _get_vm_guest(client):
+    """
+    Read the hypervisor type the kernel detected (`sysctl -n
+    kern.vm_guest`): "none" on bare metal, e.g. "vmware"/"kvm"/"hv" on a
+    VM. Best-effort: returns None if the command fails or the output is
+    empty, instead of raising.
+    """
+    try:
+        output = _send(client, "/sbin/sysctl -n kern.vm_guest")
+    except Exception:
+        return None
+
+    return output.strip() or None
+
+
 _UPTIME_DURATION_RE = re.compile(
     r"^(?P<duration>.*?),\s*\d+\s+users?,\s*load averages:\s*(?P<loads>.*)$"
 )
@@ -223,8 +238,9 @@ def extract_discovery_facts(units):
     software_version is the bare version substring of opnsense-version's
     decorated output ("OPNsense 26.1.11_10 (amd64)" -> "26.1.11_10"), build
     counter included, to exact-match SoftwareVersion.version. serial and
-    model are the SMBIOS system serial and SKU, None when unavailable
-    (e.g. on VMs).
+    model are the SMBIOS system serial and SKU, None when unavailable and
+    always None on VMs (hypervisor-generated values are not device
+    identity).
 
     Returns dict: {"serial": str | None, "software_version": str,
     "model": str | None}.
@@ -256,8 +272,9 @@ def get_info(client):
                 "freebsd_version":   str | None,            # best-effort
                 "uptime":            str | None,            # best-effort, e.g. "10 days, 4:32"
                 "load_averages":     tuple[float, float, float] | None,  # best-effort
-                "serial":            str | None,            # best-effort, None on most VMs
-                "model":             str | None,            # best-effort SMBIOS SKU, e.g. "DEC2752"
+                "vm_guest":          str | None,            # best-effort, "none" on bare metal, e.g. "vmware"
+                "serial":            str | None,            # best-effort SMBIOS serial, always None on VMs
+                "model":             str | None,            # best-effort SMBIOS SKU, e.g. "DEC2752", always None on VMs
             }
         ]
     }
@@ -271,8 +288,16 @@ def get_info(client):
 
     freebsd_version = _get_freebsd_version(client)
     uptime, load_averages = _get_uptime(client)
-    serial = _get_serial(client)
-    model = _get_sku(client)
+    vm_guest = _get_vm_guest(client)
+
+    # On a VM, SMBIOS holds hypervisor-generated values (e.g. VMware's
+    # "VMware-42 38 ..." serial), not the identity of any physical device.
+    if vm_guest and vm_guest != "none":
+        serial = None
+        model = None
+    else:
+        serial = _get_serial(client)
+        model = _get_sku(client)
 
     unit = {
         "id": 0,
@@ -282,6 +307,7 @@ def get_info(client):
         "freebsd_version": freebsd_version,
         "uptime": uptime,
         "load_averages": load_averages,
+        "vm_guest": vm_guest,
         "serial": serial,
         "model": model,
     }

@@ -4,8 +4,9 @@
 Example: read Device Discovery facts from an OPNsense device.
 
 Prints the CMDB facts used by Device Discovery: serial and model from
-SMBIOS (None when unavailable, e.g. on VMs) and the bare software version
-("26.1.11_10"), as matched against the SoftwareVersion catalog.
+SMBIOS (None when unavailable and always None on VMs) and the bare
+software version ("26.1.11_10"), as matched against the SoftwareVersion
+catalog.
 """
 
 import os

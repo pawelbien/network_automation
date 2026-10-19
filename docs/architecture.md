@@ -240,11 +240,13 @@ Same single-unit shape as MikroTik. `read_info` connects, enters the shell
 with no correlation between outputs:
 
 - **mandatory** — `hostname`, `/usr/local/sbin/opnsense-version`; empty output raises `ValueError`
-- **best-effort** — `uname -r`, `uptime`, and the SMBIOS kenv variables
-  `smbios.system.serial` / `smbios.system.sku` (`/bin/kenv -q`); a failed
-  command, missing variable, empty value or vendor placeholder
-  (`"To be filled by O.E.M."`, `"Not Specified"`, ...) yields `None`. SMBIOS
-  values are typically `None` on VMs.
+- **best-effort** — `uname -r`, `uptime`, `sysctl -n kern.vm_guest`, and the
+  SMBIOS kenv variables `smbios.system.serial` / `smbios.system.sku`
+  (`/bin/kenv -q`); a failed command, missing variable, empty value or vendor
+  placeholder (`"To be filled by O.E.M."`, `"Not Specified"`, ...) yields
+  `None`. On a VM (`vm_guest` other than `"none"`) SMBIOS is not read and
+  `serial`/`model` are `None`: the hypervisor fills SMBIOS with its own values
+  (e.g. VMware's `"VMware-42 38 ..."` serial), not a device identity.
 
 ```python
 info = read_info(client)
@@ -269,7 +271,7 @@ the exact string stored in the Nautobot `SoftwareVersion` catalog:
 | MikroTik RouterOS | channel suffix stripped, e.g. `"7.13.5"` | RouterBOARD serial, `None` on CHR | — |
 | Cisco IOS/IOS-XE | XE release string, e.g. `"03.18.06.SP.156-2.SP6-ext"` | `show version` | — |
 | Cisco IOS-XR | e.g. `"25.2.2"` | `show inventory` | — |
-| OPNsense | bare version incl. `_N`, e.g. `"26.1.11_10"` | SMBIOS serial or `None` | SMBIOS SKU or `None` |
+| OPNsense | bare version incl. `_N`, e.g. `"26.1.11_10"` | SMBIOS serial, `None` on VMs | SMBIOS SKU, `None` on VMs |
 
 ```python
 client.get_discovery_facts()
