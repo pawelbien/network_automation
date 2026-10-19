@@ -419,6 +419,9 @@ info = client.get_info()
 unit = info["units"][0]
 print(f"{unit['hostname']}: {unit['opnsense_version']}")
 
+# Device Discovery facts: {"serial": ..., "software_version": "26.1.11_10", "model": ...}
+facts = client.get_discovery_facts()
+
 # Check for available updates (read-only)
 client.check_updates()
 
@@ -435,7 +438,7 @@ client.backup("daily", download_dir="/tmp/backups")
 ```
 
 `examples/opnsense/read_info.py` shows `get_info`, printed as a formatted
-summary.
+summary; `examples/opnsense/discovery_facts.py` shows `get_discovery_facts`.
 
 ---
 

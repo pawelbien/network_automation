@@ -3,8 +3,9 @@
 """
 Example: read device information from an OPNsense device.
 
-Collects hostname, OPNsense version, FreeBSD version, and uptime, and
-prints a structured summary of the single unit.
+Collects hostname, OPNsense version, FreeBSD version, uptime, and the
+SMBIOS serial/SKU (None on most VMs), and prints a structured summary of
+the single unit.
 """
 
 import os
