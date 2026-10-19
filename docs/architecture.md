@@ -233,6 +233,52 @@ Internally, `get_info` delegates to three private helpers:
 - **`_get_system_identity`** — mandatory; system hostname
 - **`_get_hardware_info`** — optional; serial, model, bootloader firmware; raises `RuntimeError` on CHR
 
+**OPNsense — unified unit model (independent shell commands)**
+
+Same single-unit shape as MikroTik. `read_info` connects, enters the shell
+(`_ensure_shell()`) and calls `get_info`, which runs one command per field
+with no correlation between outputs:
+
+- **mandatory** — `hostname`, `/usr/local/sbin/opnsense-version`; empty output raises `ValueError`
+- **best-effort** — `uname -r`, `uptime`, and the SMBIOS kenv variables
+  `smbios.system.serial` / `smbios.system.sku` (`/bin/kenv -q`); a failed
+  command, missing variable, empty value or vendor placeholder
+  (`"To be filled by O.E.M."`, `"Not Specified"`, ...) yields `None`. SMBIOS
+  values are typically `None` on VMs.
+
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "hostname": "...",
+#             "opnsense_version": "OPNsense 26.1.11_10 (amd64)",
+#             "serial": "66911", "model": "DEC2752", ...}]}
+```
+
+**Device Discovery facts**
+
+Every platform client exposes `get_discovery_facts()`, a facade over
+`get_info()` (same connect/disconnect lifecycle) that reduces the unit list
+to the CMDB facts consumed by Nautobot Device Discovery and the
+post-upgrade version sync in the update jobs. The reduction lives in each
+platform's `info.extract_discovery_facts(units)`, which picks one unit
+(Huawei: `role="master"`, others: `units[0]`) and normalizes the version to
+the exact string stored in the Nautobot `SoftwareVersion` catalog:
+
+| Platform | `software_version` | `serial` | `model` |
+|---|---|---|---|
+| Huawei VRP | `"<family> <version>"`, e.g. `"AR650 V300R024C00SPC100"` (patch-free) | ESN | — |
+| MikroTik RouterOS | channel suffix stripped, e.g. `"7.13.5"` | RouterBOARD serial, `None` on CHR | — |
+| Cisco IOS/IOS-XE | XE release string, e.g. `"03.18.06.SP.156-2.SP6-ext"` | `show version` | — |
+| Cisco IOS-XR | e.g. `"25.2.2"` | `show inventory` | — |
+| OPNsense | bare version incl. `_N`, e.g. `"26.1.11_10"` | SMBIOS serial or `None` | SMBIOS SKU or `None` |
+
+```python
+client.get_discovery_facts()
+# {"serial": "66911", "software_version": "26.1.11_10", "model": "DEC2752"}
+```
+
+`model` is optional in the facts contract; callers must treat a missing key
+like `None`.
+
 ---
 
 ### 2. Operation / Workflow
