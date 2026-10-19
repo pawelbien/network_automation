@@ -27,6 +27,23 @@ _SHOW_VERSION = """\
   Uptime is 1 weeks, 2 days, 3 hours, 4 minutes
 """
 
+# V706R firmware: "Serial No" without ".:", value separated by spaces.
+_SHOW_VERSION_V706 = """\
+  S5750E-26X-SI Device, Compiled on Jan 01 00:00:00 2024
+  sysLocation Example Location
+  CPU MAC          00-00-5e-00-53-03
+  VLAN MAC         00-00-5e-00-53-02
+  SoftWare Package Version V706R001C001B001
+  BootRom Version  1.0.1
+  HardWare Version 1.0.0
+  CPLD Version     1.00
+  Serial No        SW0000000000000002
+  Copyright (C) 2001-2024 by DC YunKe Networks Co.,Ltd.
+  All rights reserved
+  Last reboot was cold reset.
+  Uptime is 1 weeks, 2 days, 3 hours, 4 minutes
+"""
+
 _SHOW_VENDOR = """\
 NAME            LEN          VALUE
 ------------    -----        ------------------------------
@@ -62,6 +79,24 @@ def test_parse_show_version():
         "version": "V700R001C001B001",
         "serial": "SW0000000000000001",
     }
+
+
+def test_parse_show_version_v706_serial_without_colon():
+    assert _parse_show_version(_SHOW_VERSION_V706) == {
+        "model": "S5750E-26X-SI",
+        "version": "V706R001C001B001",
+        "serial": "SW0000000000000002",
+    }
+
+
+def test_parse_show_version_empty_serial_does_not_take_next_line():
+    with pytest.raises(ValueError, match="Serial number not found"):
+        _parse_show_version(
+            "  S5750E-28X-SI Device, Compiled on Jan 01 2024\n"
+            "  SoftWare Package Version V700R001C001B001\n"
+            "  Serial No.:\n"
+            "  Copyright (C) 2001-2024\n"
+        )
 
 
 def test_parse_show_version_missing_model():

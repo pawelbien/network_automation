@@ -235,7 +235,8 @@ info = read_info(client)
 **DCN OS — unified unit model (two commands)**
 
 Same single-unit shape as Cisco IOS-XR: `get_info` runs `show version`
-(model from the first line, `SoftWare Package Version`, `Serial No.:`) and
+(model from the first line, `SoftWare Package Version`, `Serial No` — written
+`Serial No.:SW...` on V700R and `Serial No        SW...` on V706R) and
 `show vendor` (`DevType(ID)` row — the identifier DCN firmware images are
 built for). `show version` has no hostname, so the name is Netmiko's base
 prompt.
@@ -320,7 +321,7 @@ the exact string stored in the Nautobot `SoftwareVersion` catalog:
 
 | Platform | `software_version` | `serial` | `model` |
 |---|---|---|---|
-| DCN OS | `SoftWare Package Version`, e.g. `"V700R001C001B001"` | `Serial No.:` line of `show version` | first line of `show version`, e.g. `"S5750E-28X-SI"` |
+| DCN OS | `SoftWare Package Version`, e.g. `"V700R001C001B001"` | `Serial No` line of `show version` (`Serial No.:` or `Serial No` + spaces, depending on release) | first line of `show version`, e.g. `"S5750E-28X-SI"` |
 | Huawei VRP | `"<family> <version>"`, e.g. `"AR650 V300R024C00SPC100"` (patch-free) | ESN | — |
 | MikroTik RouterOS | channel suffix stripped, e.g. `"7.13.5"` | RouterBOARD serial, `None` on CHR | — |
 | Cisco IOS/IOS-XE | XE release string, e.g. `"03.18.06.SP.156-2.SP6-ext"` | `show version` | — |

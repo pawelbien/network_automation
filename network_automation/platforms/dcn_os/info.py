@@ -7,7 +7,10 @@ from network_automation.results import OperationResult
 # First line of 'show version': "  S5750E-28X-SI Device, Compiled on ..."
 _MODEL_RE = re.compile(r"^\s*(\S+)\s+Device,\s+Compiled", re.MULTILINE)
 _VERSION_RE = re.compile(r"^\s*SoftWare Package Version\s+(\S+)", re.MULTILINE)
-_SERIAL_RE = re.compile(r"^\s*Serial No\.:\s*(\S+)", re.MULTILINE)
+# Serial line differs between firmware releases:
+#   "  Serial No.:SW0000000000000001"           (V700R...)
+#   "  Serial No        SW0000000000000002"     (V706R...)
+_SERIAL_RE = re.compile(r"^\s*Serial No\.?:?[ \t]*([A-Za-z0-9]\S*)", re.MULTILINE)
 # 'show vendor' row: "DevType(ID)     4            360"
 _DEVTYPE_ID_RE = re.compile(r"^DevType\(ID\)\s+\d+\s+(\S+)", re.MULTILINE)
 

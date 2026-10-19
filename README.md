@@ -178,7 +178,7 @@ Each unit dict contains:
 | `role` | Always `"master"` |
 | `version` | `SoftWare Package Version`, e.g. `"V700R001C001B001"` |
 | `name` | Hostname (CLI prompt) |
-| `serial` | `Serial No.:` line of `show version` |
+| `serial` | `Serial No` line of `show version` — `Serial No.:SW...` (V700R) or `Serial No        SW...` (V706R) |
 | `model` | First line of `show version`, e.g. `"S5750E-28X-SI"` |
 | `devtype_id` | `DevType(ID)` row of `show vendor`, e.g. `"360"` — the identifier DCN firmware images are built for |
 
