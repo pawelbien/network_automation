@@ -2,8 +2,6 @@
 
 import time
 
-from netmiko import ConnectHandler
-
 
 def _is_reboot_prompt(out) -> bool:
     return "[yes,no]" in (out or "").lower()
@@ -57,7 +55,7 @@ def wait_for_reconnect(client):
 
         conn = None
         try:
-            conn = ConnectHandler(**client.device)
+            conn = client._open_connection()
             time.sleep(1.0)
 
             out = conn.send_command("show version", delay_factor=2, read_timeout=10)

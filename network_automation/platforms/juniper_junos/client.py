@@ -3,6 +3,7 @@
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.juniper_junos.backup import run_backup
+from network_automation.platforms.juniper_junos.connection import JunosSSH
 from network_automation.platforms.juniper_junos.info import read_info, extract_discovery_facts
 from network_automation.platforms.juniper_junos.reboot import reboot as reboot_helper
 from network_automation.platforms.juniper_junos.reboot import wait_for_reconnect as wait_for_reconnect_helper
@@ -55,6 +56,10 @@ class JuniperJunos(BaseClient):
 
         self.reconnect_timeout = reconnect_timeout
         self.reconnect_delay = reconnect_delay
+
+    def _open_connection(self):
+        """Open the connection with JunosSSH instead of Netmiko's JuniperSSH."""
+        return JunosSSH(**self.device)
 
     # -------------------------------------------------------
     # System info

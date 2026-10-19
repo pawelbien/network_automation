@@ -102,6 +102,13 @@ class BaseClient:
     # Connection handling (shared)
     # -------------------------------------------------------
 
+    def _open_connection(self):
+        """
+        Open one Netmiko connection from self.device. Platforms that need a
+        customized Netmiko class override this.
+        """
+        return ConnectHandler(**self.device)
+
     def connect(self):
         """
         Establish a Netmiko connection with retry logic.
@@ -119,7 +126,7 @@ class BaseClient:
             )
 
             try:
-                self.conn = ConnectHandler(**self.device)
+                self.conn = self._open_connection()
                 self.logger.info("Connected successfully.")
                 return
 

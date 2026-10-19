@@ -69,8 +69,9 @@ def test_wait_for_reconnect_survives_logger_failure_during_heartbeat(mocker, jun
     online_conn = MagicMock()
     online_conn.send_command.return_value = "Hostname: r1\nModel: mx204\nJunos: 21.4R3-S5.4"
 
-    mocker.patch(
-        "network_automation.platforms.juniper_junos.reboot.ConnectHandler",
+    mocker.patch.object(
+        juniper_junos_client,
+        "_open_connection",
         side_effect=[not_ready_conn, online_conn],
     )
 
@@ -98,8 +99,9 @@ def test_wait_for_reconnect_times_out(mocker, juniper_junos_client):
         side_effect=lambda: next(time_values),
     )
     mocker.patch("network_automation.platforms.juniper_junos.reboot.time.sleep")
-    mocker.patch(
-        "network_automation.platforms.juniper_junos.reboot.ConnectHandler",
+    mocker.patch.object(
+        juniper_junos_client,
+        "_open_connection",
         side_effect=Exception("connection refused"),
     )
 
