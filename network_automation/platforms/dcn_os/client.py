@@ -2,6 +2,7 @@
 
 from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
+from network_automation.platforms.dcn_os.backup import run_backup
 from network_automation.platforms.dcn_os.info import read_info, extract_discovery_facts
 
 
@@ -78,3 +79,11 @@ class DcnOS(BaseClient):
             result.metadata.update(facts)
             return result
         return facts
+
+    # -------------------------------------------------------
+    # Backup
+    # -------------------------------------------------------
+
+    def backup(self, name: str, *, return_result: bool = False, download_dir: str = "."):
+        """Write the running configuration to a local file."""
+        return run_backup(self, name, return_result=return_result, download_dir=download_dir)
