@@ -173,6 +173,28 @@ def is_newer_version(current_version: str, target_version: str) -> bool:
     return normalize_version(target_version) > normalize_version(current_version)
 
 
+def extract_discovery_facts(units):
+    """
+    Reduce get_info()'s unit list to the single-unit CMDB facts Device
+    Discovery needs: serial number and software version.
+
+    software_version is the bare version substring of opnsense-version's
+    decorated output ("OPNsense 26.1.11_10 (amd64)" -> "26.1.11_10"), build
+    counter included, to exact-match SoftwareVersion.version. serial is
+    always None - OPNsense exposes no device serial number.
+
+    Returns dict: {"serial": None, "software_version": str}.
+    """
+    raw = units[0]["opnsense_version"]
+    match = _VERSION_RE.search(raw)
+    if not match:
+        raise ValueError(f"Cannot parse OPNsense version: {raw!r}")
+    return {
+        "serial": None,
+        "software_version": match.group(0),
+    }
+
+
 def get_info(client):
     """
     Collect system information and return a unified unit structure.

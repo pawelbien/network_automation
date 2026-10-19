@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 from network_automation.platforms.opnsense.exceptions import OPNsenseShellError
+from network_automation.results import OperationResult
 
 
 # ---------- _ensure_shell ----------
@@ -104,3 +105,29 @@ def test_backup_delegates_to_workflow(mocker, opnsense_client):
     mock_workflow.assert_called_once_with(
         opnsense_client, "daily", return_result=True, download_dir="/tmp"
     )
+
+
+# ---------- get_discovery_facts ----------
+
+@pytest.fixture
+def info_result():
+    result = OperationResult(success=True, operation="info")
+    result.metadata["units"] = [{"id": 0, "role": "master", "hostname": "fw01", "opnsense_version": "OPNsense 26.1.11_10 (amd64)"}]
+    return result
+
+
+def test_get_discovery_facts(monkeypatch, opnsense_client, info_result):
+    monkeypatch.setattr(opnsense_client, "get_info", lambda return_result=False: info_result)
+
+    assert opnsense_client.get_discovery_facts() == {"serial": None, "software_version": "26.1.11_10"}
+
+
+def test_get_discovery_facts_return_result(monkeypatch, opnsense_client, info_result):
+    monkeypatch.setattr(opnsense_client, "get_info", lambda return_result=False: info_result)
+
+    result = opnsense_client.get_discovery_facts(return_result=True)
+
+    assert result is info_result
+    assert result.metadata["serial"] is None
+    assert result.metadata["software_version"] == "26.1.11_10"
+    assert "units" in result.metadata

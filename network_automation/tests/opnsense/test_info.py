@@ -10,6 +10,7 @@ from network_automation.platforms.opnsense.info import (
     _get_uptime,
     get_info,
     read_info,
+    extract_discovery_facts,
     normalize_branch,
     is_newer_branch,
     normalize_version,
@@ -288,3 +289,22 @@ def test_is_newer_version_false_when_unchanged():
     assert not is_newer_version(
         "OPNsense 26.1.11_10 (amd64)", "OPNsense 26.1.11_10 (amd64)"
     )
+
+
+# ---------- extract_discovery_facts ----------
+
+def test_extract_discovery_facts_strips_decoration():
+    units = [{"opnsense_version": "OPNsense 26.1.11_10 (amd64)"}]
+
+    assert extract_discovery_facts(units) == {"serial": None, "software_version": "26.1.11_10"}
+
+
+def test_extract_discovery_facts_bare_branch_version():
+    units = [{"opnsense_version": "OPNsense 26.1 (amd64)"}]
+
+    assert extract_discovery_facts(units)["software_version"] == "26.1"
+
+
+def test_extract_discovery_facts_raises_when_no_version_found():
+    with pytest.raises(ValueError, match="Cannot parse OPNsense version"):
+        extract_discovery_facts([{"opnsense_version": "garbage"}])
