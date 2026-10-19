@@ -43,6 +43,39 @@ Model: mx480
 Junos: 22.4R2-S2.6
 """
 
+# EX switches wrap the output in an fpc0: block even when standalone.
+_SHOW_VERSION_EX4550 = """
+fpc0:
+--------------------------------------------------------------------------
+Hostname: sw1
+Model: ex4550-32f
+Junos: 15.1R7-S6.3
+JUNOS EX  Software Suite [15.1R7-S6.3]
+JUNOS EX 4500 Software Suite [15.1R7-S6.3]
+
+{master:0}
+"""
+
+_SHOW_VERSION_VC = """
+fpc0:
+--------------------------------------------------------------------------
+Hostname: sw-vc1
+Model: ex4600-40f
+Junos: 21.4R3-S3.4
+JUNOS Base OS boot [21.4R3-S3.4]
+JUNOS jsd [i386-21.4R3-S3.4-jet-1]
+JUNOS Host Software [21.4R3-S3.4]
+
+fpc1:
+--------------------------------------------------------------------------
+Hostname: sw-vc1
+Model: ex4600-40f
+Junos: 21.4R3-S3.4
+JUNOS Base OS boot [21.4R3-S3.4]
+
+{master:0}
+"""
+
 _SHOW_CHASSIS_HARDWARE = """
 Hardware inventory:
 Item             Version  Part number  Serial number     Description
@@ -111,6 +144,29 @@ def test_parse_show_version_dual_re_uses_first_block():
     assert parsed["name"] == "r2-re0"
     assert parsed["version"] == "22.4R2-S2.6"
     assert parsed["model"] == "mx480"
+
+
+def test_parse_show_version_ex4550():
+    parsed = _parse_show_version(_SHOW_VERSION_EX4550)
+
+    assert parsed == {"name": "sw1", "version": "15.1R7-S6.3", "model": "ex4550-32f"}
+
+
+def test_parse_show_version_virtual_chassis():
+    parsed = _parse_show_version(_SHOW_VERSION_VC)
+
+    assert parsed == {"name": "sw-vc1", "version": "21.4R3-S3.4", "model": "ex4600-40f"}
+
+
+def test_get_info_virtual_chassis(juniper_junos_client, fake_conn):
+    fake_conn.send_command.side_effect = [_SHOW_VERSION_VC, _SHOW_CHASSIS_HARDWARE_VC]
+    juniper_junos_client.conn = fake_conn
+
+    unit = get_info(juniper_junos_client)["units"][0]
+
+    assert unit["serial"] == "QB0000000001"
+    assert unit["model"] == "ex4600-40f"
+    assert unit["version"] == "21.4R3-S3.4"
 
 
 def test_parse_show_version_missing_hostname():
