@@ -63,7 +63,7 @@ def _get_freebsd_version(client):
     return output.strip() or None
 
 
-# SMBIOS placeholder strings vendors leave in unset serial fields.
+# SMBIOS placeholder strings vendors leave in unset fields.
 _SERIAL_PLACEHOLDERS = {
     "none",
     "n/a",
@@ -76,24 +76,33 @@ _SERIAL_PLACEHOLDERS = {
 }
 
 
-def _get_serial(client):
+def _get_smbios(client, key):
     """
-    Read the appliance serial number from SMBIOS (`kenv
-    smbios.system.serial`, the number on Deciso appliance labels).
+    Read one SMBIOS kenv variable (e.g. "smbios.system.serial").
     Best-effort: returns None if the command fails, the variable is
     missing (e.g. on some VMs), or the value is empty or a vendor
     placeholder, instead of raising.
     """
     try:
-        output = _send(client, "/bin/kenv -q smbios.system.serial")
+        output = _send(client, f"/bin/kenv -q {key}")
     except Exception:
         return None
 
-    serial = output.strip().strip('"').strip()
-    if not serial or serial.lower() in _SERIAL_PLACEHOLDERS:
+    value = output.strip().strip('"').strip()
+    if not value or value.lower() in _SERIAL_PLACEHOLDERS:
         return None
 
-    return serial
+    return value
+
+
+def _get_serial(client):
+    """Appliance serial number (the number on Deciso appliance labels)."""
+    return _get_smbios(client, "smbios.system.serial")
+
+
+def _get_sku(client):
+    """Appliance model SKU, e.g. "DEC2752" on Deciso appliances."""
+    return _get_smbios(client, "smbios.system.sku")
 
 
 _UPTIME_DURATION_RE = re.compile(
@@ -213,10 +222,12 @@ def extract_discovery_facts(units):
 
     software_version is the bare version substring of opnsense-version's
     decorated output ("OPNsense 26.1.11_10 (amd64)" -> "26.1.11_10"), build
-    counter included, to exact-match SoftwareVersion.version. serial is the
-    SMBIOS system serial, None when unavailable (e.g. on VMs).
+    counter included, to exact-match SoftwareVersion.version. serial and
+    model are the SMBIOS system serial and SKU, None when unavailable
+    (e.g. on VMs).
 
-    Returns dict: {"serial": str | None, "software_version": str}.
+    Returns dict: {"serial": str | None, "software_version": str,
+    "model": str | None}.
     """
     unit = units[0]
     raw = unit["opnsense_version"]
@@ -226,6 +237,7 @@ def extract_discovery_facts(units):
     return {
         "serial": unit.get("serial"),
         "software_version": match.group(0),
+        "model": unit.get("model"),
     }
 
 
@@ -245,6 +257,7 @@ def get_info(client):
                 "uptime":            str | None,            # best-effort, e.g. "10 days, 4:32"
                 "load_averages":     tuple[float, float, float] | None,  # best-effort
                 "serial":            str | None,            # best-effort, None on most VMs
+                "model":             str | None,            # best-effort SMBIOS SKU, e.g. "DEC2752"
             }
         ]
     }
@@ -259,6 +272,7 @@ def get_info(client):
     freebsd_version = _get_freebsd_version(client)
     uptime, load_averages = _get_uptime(client)
     serial = _get_serial(client)
+    model = _get_sku(client)
 
     unit = {
         "id": 0,
@@ -269,6 +283,7 @@ def get_info(client):
         "uptime": uptime,
         "load_averages": load_averages,
         "serial": serial,
+        "model": model,
     }
 
     return {"units": [unit]}
