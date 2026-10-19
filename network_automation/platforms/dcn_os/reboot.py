@@ -2,6 +2,8 @@
 
 import time
 
+from network_automation.platforms.dcn_os.info import _VERSION_RE
+
 _MAX_PROMPT_ROUNDS = 3
 
 
@@ -74,7 +76,7 @@ def wait_for_reconnect(client):
 
             out = conn.send_command("show version", delay_factor=2, read_timeout=10)
 
-            if "software package version" in out.lower():
+            if _VERSION_RE.search(out):
                 client._safe_log_info("Device fully online (SSH + CLI ready).")
                 client.conn = conn
                 return conn

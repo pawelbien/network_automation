@@ -54,7 +54,7 @@ Not every operation is available on every platform.
 ### DCN OS
 
 - Device information (`get_info`) — model, version, serial via `show version`; DevType ID via `show vendor`; hostname from the CLI prompt
-- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model", "devtype_id"}`; `software_version` is the `SoftWare Package Version` string (`"V700R001C001B001"`)
+- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model", "devtype_id"}`; `software_version` is the `SoftWare Package Version` / `SoftWare Version` string (`"V700R001C001B001"`)
 - Configuration backup (`backup`) — `show running-config` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
 - Reboot (`reboot`, `reload` without saving pending config changes) and reconnect waiting (`wait_for_reconnect`)
 - Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
@@ -176,7 +176,7 @@ Each unit dict contains:
 |---|---|
 | `id` | Always `0` (single-unit device) |
 | `role` | Always `"master"` |
-| `version` | `SoftWare Package Version`, e.g. `"V700R001C001B001"` |
+| `version` | `SoftWare Package Version` (V700R, V706R) or `SoftWare Version` (V702R) line of `show version`, e.g. `"V700R001C001B001"` |
 | `name` | Hostname (CLI prompt) |
 | `serial` | `Serial No` line of `show version` — `Serial No.:SW...` (V700R) or `Serial No        SW...` (V706R) |
 | `model` | First line of `show version`, e.g. `"S5750E-28X-SI"` |

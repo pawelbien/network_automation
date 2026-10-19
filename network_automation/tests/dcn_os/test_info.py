@@ -44,6 +44,23 @@ _SHOW_VERSION_V706 = """\
   Uptime is 1 weeks, 2 days, 3 hours, 4 minutes
 """
 
+# V702R firmware: "SoftWare Version" without "Package".
+_SHOW_VERSION_V702 = """\
+  S4600-52P-SI Device, Compiled on Jan 01 00:00:00 2025
+  sysLocation Example Location
+  CPU Mac 00:00:5e:00:53:05
+  Vlan MAC 00:00:5e:00:53:04
+  SoftWare Version V702R001C001
+  BootRom Version 1.0.1
+  HardWare Version 1.0.0
+  CPLD Version N/A
+  Serial No.:SW0000000000000003
+  Copyright (C) 2001-2025 by Yunke China Information Technology Limited.
+  All rights reserved
+  Last reboot is cold reset.
+  Uptime is 1 weeks, 2 days, 3 hours, 4 minutes
+"""
+
 _SHOW_VENDOR = """\
 NAME            LEN          VALUE
 ------------    -----        ------------------------------
@@ -86,6 +103,14 @@ def test_parse_show_version_v706_serial_without_colon():
         "model": "S5750E-26X-SI",
         "version": "V706R001C001B001",
         "serial": "SW0000000000000002",
+    }
+
+
+def test_parse_show_version_v702_software_version_without_package():
+    assert _parse_show_version(_SHOW_VERSION_V702) == {
+        "model": "S4600-52P-SI",
+        "version": "V702R001C001",
+        "serial": "SW0000000000000003",
     }
 
 

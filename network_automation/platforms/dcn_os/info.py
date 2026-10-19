@@ -6,7 +6,10 @@ from network_automation.results import OperationResult
 
 # First line of 'show version': "  S5750E-28X-SI Device, Compiled on ..."
 _MODEL_RE = re.compile(r"^\s*(\S+)\s+Device,\s+Compiled", re.MULTILINE)
-_VERSION_RE = re.compile(r"^\s*SoftWare Package Version\s+(\S+)", re.MULTILINE)
+# Version line differs between firmware releases:
+#   "  SoftWare Package Version V700R001C001B001"   (V700R, V706R)
+#   "  SoftWare Version V702R001C001"               (V702R)
+_VERSION_RE = re.compile(r"^\s*SoftWare(?: Package)? Version\s+(\S+)", re.MULTILINE)
 # Serial line differs between firmware releases:
 #   "  Serial No.:SW0000000000000001"           (V700R...)
 #   "  Serial No        SW0000000000000002"     (V706R...)
@@ -72,8 +75,8 @@ def extract_discovery_facts(units):
     Reduce get_info()'s unit list to the single-unit CMDB facts Device
     Discovery needs.
 
-    software_version is the 'SoftWare Package Version' string (e.g.
-    "V700R001C001B001"), the format SoftwareVersion.version uses for this
+    software_version is the 'SoftWare Package Version' / 'SoftWare
+    Version' string (e.g. "V700R001C001B001"), the format SoftwareVersion.version uses for this
     platform. model is the 'show version' model (e.g. "S5750E-28X-SI").
     devtype_id is the 'show vendor' DevType(ID) (e.g. "360"), the
     identifier DCN firmware images are built for; Device Discovery

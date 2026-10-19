@@ -127,3 +127,21 @@ def test_wait_for_reconnect_times_out(mocker, dcn_os_client):
 
     with pytest.raises(TimeoutError):
         wait_for_reconnect(dcn_os_client)
+
+
+def test_wait_for_reconnect_accepts_software_version_without_package(mocker, dcn_os_client):
+    dcn_os_client.reconnect_timeout = 300
+    dcn_os_client.reconnect_delay = 0
+
+    mocker.patch("network_automation.platforms.dcn_os.reboot.time.time", return_value=1000.0)
+    mocker.patch("network_automation.platforms.dcn_os.reboot.time.sleep")
+
+    online_conn = MagicMock()
+    online_conn.send_command.return_value = (
+        "  S4600-52P-SI Device, Compiled on Jan 01 00:00:00 2025\n"
+        "  SoftWare Version V702R001C001\n"
+    )
+    mocker.patch.object(dcn_os_client, "_open_connection", return_value=online_conn)
+
+    assert wait_for_reconnect(dcn_os_client) is online_conn
+    assert dcn_os_client.conn is online_conn
