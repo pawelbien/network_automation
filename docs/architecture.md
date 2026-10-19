@@ -58,6 +58,16 @@ VRP's `disabled_algorithms` handling: its console shows a numbered menu
 `skip_menu` constructor parameter (default `True`) controls whether the
 client selects "Shell" from that menu before running commands.
 
+`juniper_junos` keeps the 1:1 mapping (registry key and Netmiko
+`device_type` are both `"juniper_junos"`) but opens connections with
+`JunosSSH` (`platforms/juniper_junos/connection.py`), a subclass of
+Netmiko's `JuniperSSH`. Netmiko's session setup runs
+`set cli complete-on-space off` and waits for its echo; Junos login classes
+that may not run it answer `syntax error, expecting <command>.`, so the
+connection would fail with `ReadTimeout`. `JunosSSH` treats that command as
+best-effort. Older Junos releases (e.g. 15.1, OpenSSH 6.9) also need
+`disabled_algorithms` for RSA keys, like Huawei VRP.
+
 ---
 
 ## Factory
@@ -117,6 +127,9 @@ without modification.
 
 - connection lifecycle (`connect` / `disconnect`)
 - retry logic
+- `_open_connection()` — opens one Netmiko connection from `self.device`
+  (`ConnectHandler` by default); a platform overrides it when it needs a
+  customized Netmiko class (Juniper Junos: `JunosSSH`)
 - logging integration
 - execution context handling
 
@@ -196,6 +209,23 @@ info = read_info(client)
 # {"units": [{"id": 0, "role": "master", "version": "...", "name": "...", ...}]}
 ```
 
+**Juniper Junos — unified unit model (two commands)**
+
+Same single-unit shape as Cisco IOS-XR: `get_info` runs `show version`
+(hostname, model, version) and `show chassis hardware` (serial from the
+`Chassis` line). On dual Routing Engine and Virtual Chassis systems
+`show version` repeats per member (`re0:`, `fpc0:`, ...) and the first block
+is used. A Virtual Chassis is reported as one unit; the `Chassis` line
+carries the serial of member FPC 0 and the other members are not listed.
+The version comes from the `Junos:` line, with a fallback to the first
+`JUNOS ... [<version>]` package line for releases that do not print it.
+
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "version": "21.4R3-S3.4",
+#             "name": "...", "serial": "...", "model": "ex4600-40f"}]}
+```
+
 **Huawei VRP — unified member model**
 
 Information is collected via a single `get_info` helper that runs three commands
@@ -273,6 +303,7 @@ the exact string stored in the Nautobot `SoftwareVersion` catalog:
 | MikroTik RouterOS | channel suffix stripped, e.g. `"7.13.5"` | RouterBOARD serial, `None` on CHR | — |
 | Cisco IOS/IOS-XE | XE release string, e.g. `"03.18.06.SP.156-2.SP6-ext"` | `show version` | — |
 | Cisco IOS-XR | e.g. `"25.2.2"` | `show inventory` | — |
+| Juniper Junos | full release incl. build, e.g. `"21.4R3-S3.4"` | `Chassis` line of `show chassis hardware` | `show version` model, e.g. `"ex4600-40f"` |
 | OPNsense | bare version incl. `_N`, e.g. `"26.1.11_10"` | SMBIOS serial, `None` on VMs | SMBIOS SKU, `None` on VMs |
 
 ```python
@@ -603,6 +634,13 @@ tests/
 │   ├── test_upload.py           # ← upload.py
 │   ├── test_version.py          # ← version.py
 │   └── test_upgrade.py          # ← upgrade.py
+├── juniper_junos/
+│   ├── conftest.py              # juniper_junos_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_client.py           # ← client.py
+│   ├── test_connection.py       # ← connection.py
+│   ├── test_info.py             # ← info.py
+│   └── test_reboot.py           # ← reboot.py
 ├── mikrotik_routeros/
 │   ├── conftest.py              # mikrotik_client fixture
 │   ├── test_backup.py           # ← backup.py

@@ -15,6 +15,7 @@ Currently supported platforms:
 - **Cisco IOS/IOS-XE** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_ios"` (same string as Netmiko's Cisco IOS driver)
 - **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`), Device Discovery facts (`get_discovery_facts`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
 - **Huawei VRP** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
+- **Juniper Junos** — device information (`get_info`, `show version` + `show chassis hardware`), Device Discovery facts (`get_discovery_facts`, including `model`), configuration backup (`backup`, `show configuration | display set` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="juniper_junos"` (same string as Netmiko's Juniper driver)
 - **MikroTik RouterOS** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), command execution (`run`), backup creation and download (`backup`), firmware upgrade (`upgrade`, online download or offline SSH/SFTP upload), and bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only, not supported on CHR); use `device_type="mikrotik_routeros"` (same string as Netmiko's MikroTik RouterOS driver)
 - **OPNsense** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 
@@ -57,6 +58,14 @@ Not every operation is available on every platform.
 - File upload (`upload`) — push local files to the device via SFTP
 - Configuration backup and download (`backup`) — named on-device config snapshot (`save <filename>`) + SFTP download, with cleanup of old `nauto_`-prefixed snapshots
 - Firmware upgrade (`upgrade`) — firmware, patch, or both, single-unit devices (see below)
+
+### Juniper Junos
+
+- Device information (`get_info`) — hostname, version, model via `show version`; serial via `show chassis hardware`
+- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model"}`; `software_version` is the full release string including the build number (`"21.4R3-S3.4"`)
+- Configuration backup (`backup`) — `show configuration | display set` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
+- Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
+- Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
 
 ### MikroTik RouterOS
 
@@ -194,6 +203,40 @@ Example output for a 2-member stack:
     ]
 }
 ```
+
+### Juniper Junos
+
+`get_info` runs `show version` (hostname, version, model) and
+`show chassis hardware` (serial) and returns a unified **unit structure**
+with a single unit. On multi-member systems (dual Routing Engine, Virtual
+Chassis) `show version` repeats per member (`re0:`, `fpc0:`, ...) and the
+first block is used; a Virtual Chassis is reported as one unit with the
+serial from the `Chassis` line (the serial of member FPC 0).
+
+The version comes from the `Junos:` line; releases that do not print it
+fall back to the first `JUNOS ... [<version>]` package line.
+
+```python
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `version` | Junos release including build number, e.g. `"21.4R3-S3.4"` |
+| `name` | Hostname |
+| `serial` | Chassis serial number (`show chassis hardware`) |
+| `model` | Model as printed by `show version`, lowercase, e.g. `"ex4600-40f"` |
+
+All fields are mandatory — a missing field raises `ValueError`.
+
+`client.upgrade()` is not implemented yet and raises `NotImplementedError`.
 
 ### MikroTik RouterOS
 
@@ -392,6 +435,43 @@ CLI-style scripts live in `examples/huawei_vrp/`:
 - `read_info.py` — collect and print device information (version, ESN, startup image) per unit
 - `upgrade.py` — firmware and/or patch upgrade for single-unit devices (target versions + local `.cc`/`.pat` files)
 
+### Juniper Junos
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="juniper_junos",
+    host="10.0.0.1",
+    username="admin",
+    key_file="~/.ssh/id_rsa",
+    use_keys=True,
+)
+
+info = client.get_info()
+unit = info["units"][0]
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+
+# Device Discovery facts: {"serial": ..., "software_version": "21.4R3-S3.4", "model": "ex4600-40f"}
+facts = client.get_discovery_facts()
+
+# Configuration backup: captures 'show configuration | display set' over the
+# existing SSH session and writes it to daily.cfg — no SFTP, no on-device file
+client.backup("daily", download_dir="/tmp/backups")
+```
+
+Older releases (e.g. Junos 15.1, OpenSSH 6.9) do not support
+`rsa-sha2-256/512` signatures; RSA keys then need
+`disabled_algorithms={"pubkeys": ["rsa-sha2-512", "rsa-sha2-256"]}`.
+
+Session setup tolerates login classes that may not run
+`set cli complete-on-space off` (see `docs/architecture.md`).
+
+`examples/juniper_junos/read_info.py` shows `get_info` and
+`examples/juniper_junos/discovery_facts.py` shows `get_discovery_facts`.
+
+`client.upgrade()` is not implemented yet and raises `NotImplementedError`.
+
 ### MikroTik RouterOS
 
 ```python
@@ -452,8 +532,9 @@ summary; `examples/opnsense/discovery_facts.py` shows `get_discovery_facts`.
 Firmware upgrade is implemented for **Huawei VRP** (firmware and/or
 patch, single-unit devices — see below), for **MikroTik RouterOS**, and
 for **OPNsense** via its native `configctl firmware` backend (see
-below). Not yet implemented for **Cisco IOS/IOS-XE** or **Cisco
-IOS-XR** — `client.upgrade()` raises `NotImplementedError`.
+below). Not yet implemented for **Cisco IOS/IOS-XE**, **Cisco
+IOS-XR** or **Juniper Junos** — `client.upgrade()` raises
+`NotImplementedError`.
 
 ### Huawei VRP
 
@@ -707,6 +788,7 @@ Tests are designed to run without real network devices.
 - `examples/cisco_ios/` — Cisco IOS/IOS-XE usage examples (`read_info.py`)
 - `examples/cisco_xr/` — Cisco IOS-XR usage examples (`read_info.py`)
 - `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
+- `examples/juniper_junos/` — Juniper Junos usage examples (`read_info.py`, `discovery_facts.py`)
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
 - `examples/opnsense/` — OPNsense usage examples (`read_info.py`)
 
