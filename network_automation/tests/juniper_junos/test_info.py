@@ -51,6 +51,36 @@ Midplane         REV 27   750-070866   ACRB1234          Lower Backplane
 Routing Engine 0          BUILTIN      BUILTIN           RE-S-1600x8
 """
 
+_SHOW_CHASSIS_HARDWARE_EX4550 = """
+Hardware inventory:
+Item             Version  Part number  Serial number     Description
+Chassis                                QA0000000001      EX4550-32F
+Routing Engine 0 REV 18   750-045402   QA0000000001      EX4550-32F
+FPC 0            REV 18   750-045402   QA0000000001      EX4550-32F
+  CPU                     BUILTIN      BUILTIN           FPC CPU
+    Xcvr 0       REV 01   740-021308   ZZT0000000001     SFP+-10G-SR
+Power Supply 0   REV 03   740-044332   9QQ00000001       JPSU-650W-AC-AFI
+
+{master:0}
+"""
+
+# Virtual Chassis: the Chassis line carries the VC serial (the serial of
+# member FPC 0), with "Virtual Chassis" instead of a model.
+_SHOW_CHASSIS_HARDWARE_VC = """
+Hardware inventory:
+Item             Version  Part number  Serial number     Description
+Chassis                                QB0000000001      Virtual Chassis
+Routing Engine 0          BUILTIN      BUILTIN           EX4600-40F
+Routing Engine 1          BUILTIN      BUILTIN           EX4600-40F
+FPC 0            REV 04   650-064288   QB0000000001      EX4600-40F
+  CPU                     BUILTIN      BUILTIN           FPC CPU
+  PIC 1          REV 03   611-064275   QC0000000001      EX4600-EM-8F
+FPC 1            REV 04   650-064288   QB0000000002      EX4600-40F
+  CPU                     BUILTIN      BUILTIN           FPC CPU
+
+{master:0}
+"""
+
 
 @pytest.fixture
 def fake_conn():
@@ -102,6 +132,14 @@ def test_parse_show_version_missing_version():
 
 def test_parse_chassis_hardware():
     assert _parse_chassis_hardware(_SHOW_CHASSIS_HARDWARE) == "JN1234ABCDEF"
+
+
+def test_parse_chassis_hardware_ex4550():
+    assert _parse_chassis_hardware(_SHOW_CHASSIS_HARDWARE_EX4550) == "QA0000000001"
+
+
+def test_parse_chassis_hardware_virtual_chassis_uses_chassis_serial():
+    assert _parse_chassis_hardware(_SHOW_CHASSIS_HARDWARE_VC) == "QB0000000001"
 
 
 def test_parse_chassis_hardware_missing_serial():
