@@ -16,7 +16,7 @@ Currently supported platforms:
 - **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
 - **Huawei VRP** — device information (`get_info`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 - **MikroTik RouterOS** — device information (`get_info`), command execution (`run`), backup creation and download (`backup`), firmware upgrade (`upgrade`, online download or offline SSH/SFTP upload), and bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only, not supported on CHR); use `device_type="mikrotik_routeros"` (same string as Netmiko's MikroTik RouterOS driver)
-- **OPNsense** — device information (`get_info`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
+- **OPNsense** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), update/upgrade checking (`check_updates`, `update`, `upgrade`) via the native `configctl firmware` backend, `reboot`/`wait_for_reconnect`, and configuration backup (`backup`, SFTP GET of `/conf/config.xml`) — over SSH/CLI (Netmiko, no native driver — see below); use `device_type="opnsense"`
 
 ---
 
@@ -73,7 +73,8 @@ Not every operation is available on every platform.
 
 ### OPNsense
 
-- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime
+- Device information (`get_info`) — hostname, OPNsense version, FreeBSD version, uptime, SMBIOS serial and SKU
+- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model"}` for CMDB sync; `software_version` is the bare version (`"26.1.11_10"`), `serial`/`model` are `None` when SMBIOS has no value (typical on VMs)
 - Update checking (`check_updates`) — read-only, never modifies the device
 - Update within the current release branch (`update`) and migration to a new branch (`upgrade`) — both drive the native `configctl firmware` backend; neither calls the other automatically
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
@@ -249,7 +250,8 @@ Example output (RouterBOARD device):
 
 ### OPNsense
 
-`get_info` reads `hostname`, `opnsense-version`, `uname -r`, and `uptime`
+`get_info` reads `hostname`, `opnsense-version`, `uname -r`, `uptime`, and
+the SMBIOS `smbios.system.serial`/`smbios.system.sku` kenv variables
 over an SSH shell and returns a unified **unit structure**. OPNsense is
 always a single-unit device.
 
@@ -270,6 +272,8 @@ Each unit dict contains:
 | `opnsense_version` | OPNsense version string |
 | `freebsd_version` | Underlying FreeBSD version, or `None` if unavailable (best-effort) |
 | `uptime` | Raw BSD `uptime` output, or `None` if unavailable (best-effort) |
+| `serial` | SMBIOS system serial (e.g. `66911`), or `None` if missing/empty/vendor placeholder (best-effort) |
+| `model` | SMBIOS system SKU (e.g. `DEC2752`), or `None` if missing/empty/vendor placeholder (best-effort) |
 
 OPNsense's SSH console normally shows a numbered menu (`0) Logout` … `8)
 Shell`) instead of a shell prompt directly. The client assumes
