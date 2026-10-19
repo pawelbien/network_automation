@@ -4,6 +4,9 @@ from network_automation.base_client import BaseClient
 from network_automation.context import ExecutionContext
 from network_automation.platforms.dcn_os.backup import run_backup
 from network_automation.platforms.dcn_os.info import read_info, extract_discovery_facts
+from network_automation.platforms.dcn_os.reboot import reboot as reboot_helper
+from network_automation.platforms.dcn_os.reboot import wait_for_reconnect as wait_for_reconnect_helper
+from network_automation.platforms.dcn_os.upgrade import upgrade as upgrade_helper
 
 
 class DcnOS(BaseClient):
@@ -79,6 +82,26 @@ class DcnOS(BaseClient):
             result.metadata.update(facts)
             return result
         return facts
+
+    # -------------------------------------------------------
+    # Reboot & reconnect
+    # -------------------------------------------------------
+
+    def reboot(self):
+        """Reload the device without saving pending config changes."""
+        return reboot_helper(self)
+
+    def wait_for_reconnect(self):
+        """Wait until the device is reachable via SSH again."""
+        return wait_for_reconnect_helper(self)
+
+    # -------------------------------------------------------
+    # Upgrade
+    # -------------------------------------------------------
+
+    def upgrade(self, *, return_result: bool = False):
+        """Not implemented yet."""
+        return upgrade_helper(self, return_result=return_result)
 
     # -------------------------------------------------------
     # Backup

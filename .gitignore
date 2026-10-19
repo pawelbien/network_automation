@@ -39,3 +39,6 @@ dist/
 # Other
 priv*
 diagnostics/
+
+# local config backups from priv_*_backup.py scripts
+*.cfg

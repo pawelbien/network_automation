@@ -63,3 +63,8 @@ def test_get_discovery_facts_return_result(monkeypatch, dcn_os_client, info_resu
     assert result is info_result
     assert result.metadata["software_version"] == "V700R001C001B001"
     assert result.metadata["devtype_id"] == "360"
+
+
+def test_upgrade_not_implemented(dcn_os_client):
+    with pytest.raises(NotImplementedError):
+        dcn_os_client.upgrade()
