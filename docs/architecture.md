@@ -68,6 +68,12 @@ connection would fail with `ReadTimeout`. `JunosSSH` treats that command as
 best-effort. Older Junos releases (e.g. 15.1, OpenSSH 6.9) also need
 `disabled_algorithms` for RSA keys, like Huawei VRP.
 
+**Exception:** `dcn_os`. Netmiko has no DCN OS driver either; the registry
+key is `dcn_os` and the internal Netmiko `device_type` is `"cisco_ios"`
+(the DCN OS CLI is Cisco-like and the session starts in privileged mode).
+Its SSH server accepts only `ssh-rsa` signatures for RSA keys, so callers
+pass `disabled_algorithms` (in Nautobot: the `legacy_ssh` DeviceType flag).
+
 ---
 
 ## Factory
@@ -226,6 +232,21 @@ info = read_info(client)
 #             "name": "...", "serial": "...", "model": "ex4600-40f"}]}
 ```
 
+**DCN OS — unified unit model (two commands)**
+
+Same single-unit shape as Cisco IOS-XR: `get_info` runs `show version`
+(model from the first line, `SoftWare Package Version`, `Serial No.:`) and
+`show vendor` (`DevType(ID)` row — the identifier DCN firmware images are
+built for). `show version` has no hostname, so the name is Netmiko's base
+prompt.
+
+```python
+info = read_info(client)
+# {"units": [{"id": 0, "role": "master", "version": "V700R001C001B001",
+#             "name": "...", "serial": "...", "model": "S5750E-28X-SI",
+#             "devtype_id": "360"}]}
+```
+
 **Huawei VRP — unified member model**
 
 Information is collected via a single `get_info` helper that runs three commands
@@ -299,6 +320,7 @@ the exact string stored in the Nautobot `SoftwareVersion` catalog:
 
 | Platform | `software_version` | `serial` | `model` |
 |---|---|---|---|
+| DCN OS | `SoftWare Package Version`, e.g. `"V700R001C001B001"` | `Serial No.:` line of `show version` | first line of `show version`, e.g. `"S5750E-28X-SI"` |
 | Huawei VRP | `"<family> <version>"`, e.g. `"AR650 V300R024C00SPC100"` (patch-free) | ESN | — |
 | MikroTik RouterOS | channel suffix stripped, e.g. `"7.13.5"` | RouterBOARD serial, `None` on CHR | — |
 | Cisco IOS/IOS-XE | XE release string, e.g. `"03.18.06.SP.156-2.SP6-ext"` | `show version` | — |
@@ -312,7 +334,9 @@ client.get_discovery_facts()
 ```
 
 `model` is optional in the facts contract; callers must treat a missing key
-like `None`.
+like `None`. DCN OS additionally returns `devtype_id` (`show vendor`
+`DevType(ID)`, e.g. `"360"`), compared by Device Discovery with the device
+type's `dcn_firmware_devtype_id`.
 
 ---
 
@@ -621,6 +645,12 @@ tests/
 │   └── test_reboot.py           # ← reboot.py
 ├── cisco_xr/
 │   ├── conftest.py              # cisco_xr_client fixture
+│   ├── test_backup.py           # ← backup.py
+│   ├── test_client.py           # ← client.py
+│   ├── test_info.py             # ← info.py
+│   └── test_reboot.py           # ← reboot.py
+├── dcn_os/
+│   ├── conftest.py              # dcn_os_client fixture
 │   ├── test_backup.py           # ← backup.py
 │   ├── test_client.py           # ← client.py
 │   ├── test_info.py             # ← info.py

@@ -14,6 +14,7 @@ Currently supported platforms:
 
 - **Cisco IOS/IOS-XE** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_ios"` (same string as Netmiko's Cisco IOS driver)
 - **Cisco IOS-XR** — device information (`get_info`, `show version` + `show inventory`), Device Discovery facts (`get_discovery_facts`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="cisco_xr"` (same string as Netmiko's Cisco IOS-XR driver)
+- **DCN OS** (DC YunKe Networks switches) — device information (`get_info`, `show version` + `show vendor`), Device Discovery facts (`get_discovery_facts`, including `model` and `devtype_id`), configuration backup (`backup`, `show running-config` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="dcn_os"` (no Netmiko driver exists — the client uses Netmiko's `cisco_ios` driver)
 - **Huawei VRP** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), remote command execution (`run`), file download (`download`), file upload (`upload`) via Netmiko/SFTP, named configuration backup and download (`backup`), and an upgrade (`upgrade`, single-unit devices) covering firmware, patch, or both; use `device_type="huawei"` (same string as Netmiko’s Huawei driver)
 - **Juniper Junos** — device information (`get_info`, `show version` + `show chassis hardware`), Device Discovery facts (`get_discovery_facts`, including `model`), configuration backup (`backup`, `show configuration | display set` captured over the existing SSH session, no SFTP), `reboot`/`wait_for_reconnect`; firmware upgrade (`upgrade`) is not implemented yet (raises `NotImplementedError`); use `device_type="juniper_junos"` (same string as Netmiko's Juniper driver)
 - **MikroTik RouterOS** — device information (`get_info`), Device Discovery facts (`get_discovery_facts`), command execution (`run`), backup creation and download (`backup`), firmware upgrade (`upgrade`, online download or offline SSH/SFTP upload), and bootloader firmware upgrade (`bootloader_upgrade`, RouterOS only, not supported on CHR); use `device_type="mikrotik_routeros"` (same string as Netmiko's MikroTik RouterOS driver)
@@ -48,6 +49,14 @@ Not every operation is available on every platform.
 - Device information (`get_info`) — hostname, version, model via `show version`; serial via `show inventory`
 - Configuration backup (`backup`) — `show running-config` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
 - Reboot (`reboot`) and reconnect waiting (`wait_for_reconnect`)
+- Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
+
+### DCN OS
+
+- Device information (`get_info`) — model, version, serial via `show version`; DevType ID via `show vendor`; hostname from the CLI prompt
+- Device Discovery facts (`get_discovery_facts`) — `{"serial", "software_version", "model", "devtype_id"}`; `software_version` is the `SoftWare Package Version` string (`"V700R001C001B001"`)
+- Configuration backup (`backup`) — `show running-config` captured over the existing SSH session and written to a local file; no SFTP, no on-device artifact
+- Reboot (`reboot`, `reload` without saving pending config changes) and reconnect waiting (`wait_for_reconnect`)
 - Firmware upgrade (`upgrade`) — not implemented yet, raises `NotImplementedError`
 
 ### Huawei VRP
@@ -146,6 +155,36 @@ Each unit dict contains:
 | `model` | Device model |
 
 All fields are mandatory — a missing field raises `ValueError`.
+
+### DCN OS
+
+`get_info` runs `show version` (model, version, serial) and `show vendor`
+(DevType ID) and returns a unified **unit structure** with a single unit.
+`show version` has no hostname line; the hostname is taken from the CLI
+prompt.
+
+```python
+info = client.get_info()
+unit = info["units"][0]
+
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']}, DevType {unit['devtype_id']})")
+```
+
+Each unit dict contains:
+
+| Field | Description |
+|---|---|
+| `id` | Always `0` (single-unit device) |
+| `role` | Always `"master"` |
+| `version` | `SoftWare Package Version`, e.g. `"V700R001C001B001"` |
+| `name` | Hostname (CLI prompt) |
+| `serial` | `Serial No.:` line of `show version` |
+| `model` | First line of `show version`, e.g. `"S5750E-28X-SI"` |
+| `devtype_id` | `DevType(ID)` row of `show vendor`, e.g. `"360"` — the identifier DCN firmware images are built for |
+
+All fields are mandatory — a missing field raises `ValueError`.
+
+`client.upgrade()` is not implemented yet and raises `NotImplementedError`.
 
 ### Huawei VRP
 
@@ -386,6 +425,42 @@ summary.
 
 `client.upgrade()` is not implemented yet and raises `NotImplementedError`.
 
+### DCN OS
+
+```python
+from network_automation.factory import get_client
+
+client = get_client(
+    device_type="dcn_os",
+    host="10.0.0.1",
+    username="admin",
+    key_file="~/.ssh/id_rsa",
+    use_keys=True,
+    # the DCN OS SSH server accepts only ssh-rsa signatures for RSA keys
+    disabled_algorithms={"pubkeys": ["rsa-sha2-512", "rsa-sha2-256"]},
+)
+
+info = client.get_info()
+unit = info["units"][0]
+print(f"{unit['name']}: {unit['version']} ({unit['model']}, {unit['serial']})")
+
+# Device Discovery facts: {"serial": ..., "software_version": "V700R001C001B001",
+#                          "model": "S5750E-28X-SI", "devtype_id": "360"}
+facts = client.get_discovery_facts()
+
+# Configuration backup: captures 'show running-config' over the existing SSH
+# session and writes it to daily.cfg — no SFTP, no on-device file
+client.backup("daily", download_dir="/tmp/backups")
+```
+
+DCN OS has no Netmiko driver; its CLI is Cisco-like, so the client uses
+Netmiko's `cisco_ios` driver (the session starts in privileged mode).
+
+`examples/dcn_os/read_info.py` shows `get_info` and
+`examples/dcn_os/discovery_facts.py` shows `get_discovery_facts`.
+
+`client.upgrade()` is not implemented yet and raises `NotImplementedError`.
+
 ### Huawei VRP
 
 ```python
@@ -533,7 +608,7 @@ Firmware upgrade is implemented for **Huawei VRP** (firmware and/or
 patch, single-unit devices — see below), for **MikroTik RouterOS**, and
 for **OPNsense** via its native `configctl firmware` backend (see
 below). Not yet implemented for **Cisco IOS/IOS-XE**, **Cisco
-IOS-XR** or **Juniper Junos** — `client.upgrade()` raises
+IOS-XR**, **DCN OS** or **Juniper Junos** — `client.upgrade()` raises
 `NotImplementedError`.
 
 ### Huawei VRP
@@ -787,6 +862,7 @@ Tests are designed to run without real network devices.
 - `docs/architecture.md` — architectural invariants and patterns
 - `examples/cisco_ios/` — Cisco IOS/IOS-XE usage examples (`read_info.py`)
 - `examples/cisco_xr/` — Cisco IOS-XR usage examples (`read_info.py`)
+- `examples/dcn_os/` — DCN OS usage examples (`read_info.py`, `discovery_facts.py`)
 - `examples/huawei_vrp/` — Huawei VRP usage examples (device info, remote command execution, firmware upgrade)
 - `examples/juniper_junos/` — Juniper Junos usage examples (`read_info.py`, `discovery_facts.py`)
 - `examples/mikrotik_routeros/` — MikroTik RouterOS usage examples (`read_info.py`, `run_command.py`, `update.py`)
