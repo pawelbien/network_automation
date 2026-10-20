@@ -79,8 +79,9 @@ def extract_discovery_facts(units):
     Version' string (e.g. "V700R001C001B001"), the format SoftwareVersion.version uses for this
     platform. model is the 'show version' model (e.g. "S5750E-28X-SI").
     devtype_id is the 'show vendor' DevType(ID) (e.g. "360"), the
-    identifier DCN firmware images are built for; Device Discovery
-    compares it with the device type's dcn_firmware_devtype_id.
+    identifier DCN firmware images are built for; it depends on the
+    hardware revision, not the part number. Device Discovery records it
+    in the Device custom field dcn_devtype_id.
 
     Returns dict: {"serial": str, "software_version": str, "model": str,
     "devtype_id": str}.

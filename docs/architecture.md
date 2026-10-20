@@ -337,8 +337,9 @@ client.get_discovery_facts()
 
 `model` is optional in the facts contract; callers must treat a missing key
 like `None`. DCN OS additionally returns `devtype_id` (`show vendor`
-`DevType(ID)`, e.g. `"360"`), compared by Device Discovery with the device
-type's `dcn_firmware_devtype_id`.
+`DevType(ID)`, e.g. `"360"`), recorded by Device Discovery in the Device
+custom field `dcn_devtype_id`. It depends on the hardware revision, not the
+part number.
 
 ---
 

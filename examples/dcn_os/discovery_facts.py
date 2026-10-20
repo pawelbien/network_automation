@@ -6,8 +6,8 @@ Example: read Device Discovery facts from a DCN OS switch.
 Prints the CMDB facts used by Device Discovery: the serial, the model from
 'show version' ("S5750E-28X-SI"), the SoftWare (Package) Version
 ("V700R001C001B001"), as matched against the SoftwareVersion catalog, and
-the 'show vendor' DevType ID ("360"), compared with the device type's
-dcn_firmware_devtype_id.
+the 'show vendor' DevType ID ("360"), recorded in the Device custom field
+dcn_devtype_id.
 """
 
 import os
